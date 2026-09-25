@@ -11,11 +11,13 @@ const NATIVE := Vector2i(195, 422)
 const COL_LEFT := 12    # 0.06 of the width
 const COL_RIGHT := 183  # 0.94 of the width
 
-const FONT_TINY := "res://assets/fonts/tiny.fnt"
-const FONT_BODY := "res://assets/fonts/body.fnt"
-const FONT_BOLD := "res://assets/fonts/bold.fnt"
+# Faces from tools/gen_fonts.py: [line height = font size at 1x, cap height]. The *_ol faces
+# carry a baked ink outline and their own cream colour, for text laid straight over the scene.
+const FACES := {
+	"tiny": [8, 5], "body": [10, 7], "bold": [10, 7], "tall": [13, 10],
+	"tiny_ol": [8, 5], "bold_ol": [10, 7],
+}
 const TINY_SIZE := 8
-const BODY_SIZE := 10
 
 static var strings_seen := {}
 static var _fonts := {}
@@ -39,8 +41,7 @@ static func txt(s: String) -> String:
 static func font(name: String) -> FontFile:
 	if _fonts.has(name):
 		return _fonts[name]
-	var path: String = {"tiny": FONT_TINY, "body": FONT_BODY, "bold": FONT_BOLD}[name]
-	var f: FontFile = load(path)
+	var f: FontFile = load("res://assets/fonts/%s.fnt" % name)
 	f.fixed_size_scale_mode = TextServer.FIXED_SIZE_SCALE_INTEGER_ONLY
 	f.antialiasing = TextServer.FONT_ANTIALIASING_NONE
 	f.subpixel_positioning = TextServer.SUBPIXEL_POSITIONING_DISABLED
@@ -50,11 +51,15 @@ static func font(name: String) -> FontFile:
 
 
 static func font_size(name: String, scale := 1) -> int:
-	return (TINY_SIZE if name == "tiny" else BODY_SIZE) * scale
+	return FACES[name][0] * scale
 
 
 static func cap_height(name: String, scale := 1) -> int:
-	return (5 if name == "tiny" else 7) * scale
+	return FACES[name][1] * scale
+
+
+static func outlined(name: String) -> bool:
+	return name.ends_with("_ol")
 
 
 static func label(text: String, face := "body", color := PixelArt.CREAM, scale := 1,
@@ -63,9 +68,10 @@ static func label(text: String, face := "body", color := PixelArt.CREAM, scale :
 	l.text = txt(text)
 	l.add_theme_font_override("font", font(face))
 	l.add_theme_font_size_override("font_size", font_size(face, scale))
-	l.add_theme_color_override("font_color", PixelArt.c(color))
+	# outlined faces carry their own colours, so they are drawn untinted
+	l.add_theme_color_override("font_color", Color.WHITE if outlined(face) else PixelArt.c(color))
 	l.add_theme_constant_override("line_spacing", 1 * scale)
-	if shadow:
+	if shadow and not outlined(face):
 		l.add_theme_color_override("font_shadow_color", PixelArt.c(PixelArt.INK))
 		l.add_theme_constant_override("shadow_offset_x", 0)
 		l.add_theme_constant_override("shadow_offset_y", scale)
@@ -120,6 +126,8 @@ func _emit(what: String) -> void:
 	action.emit(what)
 
 
+## Title laid out after reference/bas_title.png: logo over the sky, the button column right
+## of the player figure, the icon row along the bottom with captions over the street.
 func build_title() -> void:
 	var root := Control.new()
 	root.name = "Title"
@@ -132,28 +140,27 @@ func build_title() -> void:
 	logo.name = "Logo"
 	logo.texture = load("res://assets/ui/logo.png")
 	logo.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	logo.position = Vector2((NATIVE.x - logo.texture.get_width()) / 2, 14)
+	logo.position = Vector2((NATIVE.x - logo.texture.get_width()) / 2, 6)
 	root.add_child(logo)
 
-	var tag := label("TEN OUTLAWS. ONE THUMB.", "bold", PixelArt.CREAM, 1,
+	var tag := label("TEN OUTLAWS. ONE THUMB.", "bold_ol", PixelArt.CREAM, 1,
 			HORIZONTAL_ALIGNMENT_CENTER, COL_RIGHT - COL_LEFT)
 	tag.name = "Tagline"
-	tag.position = Vector2(COL_LEFT, 14 + logo.texture.get_height() + 6)
+	tag.position = Vector2(COL_LEFT, 6 + logo.texture.get_height() + 3)
 	root.add_child(tag)
 
-	# Button column right of centre, clear of the player figure in the lower left.
-	var x := 66
-	var w := 112
-	var y := 196
+	var x := 67
+	var w := 90
+	var y := 234
 	title_buttons.clear()
 	for spec in [
-		["play", "PLAY", PixelButton.STYLE_RED, 28, 2],
-		["practice", "PRACTICE", PixelButton.STYLE_WOOD, 21, 1],
-		["daily", "DAILY DUEL", PixelButton.STYLE_WOOD, 21, 1],
-		["scores", "HIGH SCORES", PixelButton.STYLE_WOOD, 21, 1],
-		["outlaws", "OUTLAWS", PixelButton.STYLE_WOOD, 21, 1],
+		["play", "PLAY", PixelButton.STYLE_RED, 26, "tall"],
+		["practice", "PRACTICE", PixelButton.STYLE_WOOD, 21, "bold"],
+		["daily", "DAILY DUEL", PixelButton.STYLE_WOOD, 21, "bold"],
+		["scores", "HIGH SCORES", PixelButton.STYLE_WOOD, 21, "bold"],
+		["outlaws", "OUTLAWS", PixelButton.STYLE_WOOD, 21, "bold"],
 	]:
-		var b := PixelButton.new(spec[0], spec[1], spec[2], spec[4])
+		var b := PixelButton.new(spec[0], spec[1], spec[2], 1, spec[4])
 		b.position = Vector2(x, y)
 		b.size = Vector2(w, spec[3])
 		b.pressed.connect(_emit.bind(spec[0]))
@@ -161,56 +168,40 @@ func build_title() -> void:
 		title_buttons.append(b)
 		y += spec[3] + 5
 		if spec[0] == "daily":
-			var plate := plate_label("DailyStatus", "", x + 4, y - 4, w - 8)
-			plate.set_meta("slot_y", y - 4)  # room for two lines; one line sits centred
-			root.add_child(plate)
-			y += 16
+			# centred under the button, as wide as the column allows on its right side
+			var sw := 2 * (COL_RIGHT - (x + w / 2))
+			var status := label("", "tiny_ol", PixelArt.CREAM, 1, HORIZONTAL_ALIGNMENT_CENTER, sw)
+			status.name = "DailyStatus"
+			status.position = Vector2(x + w / 2 - sw / 2, y - 4)
+			status.set_meta("slot_y", y - 4)  # room for two lines; one line sits centred
+			root.add_child(status)
+			y += 12
 
-	# Icon row: stats and how to play on the left and middle, sound toggle bottom right.
-	var icons := [
-		["stats", "STATS", PixelButton.ICON_STATS, 18],
-		["howto", "HOW TO PLAY", PixelButton.ICON_HOWTO, 86],
-		["sound", "SOUND", PixelButton.ICON_SOUND_ON, 155],
-	]
-	for spec in icons:
+	# Icon row as in the reference: stats bottom left, sound and how to play bottom right.
+	for spec in [
+		["stats", "STATS", PixelButton.ICON_STATS, 12],
+		["sound", "SOUND", PixelButton.ICON_SOUND_ON, 94],
+		["howto", "HOW TO PLAY", PixelButton.ICON_HOWTO, 161],
+	]:
 		var b := PixelButton.new(spec[0], "", PixelButton.STYLE_WOOD, 1)
 		b.icon_rows = spec[2]
-		b.position = Vector2(spec[3], 380)
-		b.size = Vector2(24, 24)
+		b.position = Vector2(spec[3], 382)
+		b.size = Vector2(22, 22)
 		b.pressed.connect(_emit.bind(spec[0]))
 		root.add_child(b)
 		title_buttons.append(b)
-		var cw := int(font("tiny").get_string_size(spec[1], HORIZONTAL_ALIGNMENT_LEFT, -1, TINY_SIZE).x) + 7
-		var cap := plate_label("Cap_" + spec[0], spec[1], clampi(spec[3] + 12 - cw / 2, COL_LEFT, COL_RIGHT - cw), 405, cw)
+		var cw := int(font("tiny_ol").get_string_size(spec[1], HORIZONTAL_ALIGNMENT_LEFT, -1, TINY_SIZE).x) + 2
+		var cap := label(spec[1], "tiny_ol", PixelArt.CREAM, 1, HORIZONTAL_ALIGNMENT_CENTER, cw)
+		cap.name = "Cap_" + spec[0]
+		cap.position = Vector2(clampi(spec[3] + 11 - cw / 2, COL_LEFT, COL_RIGHT - cw), 407)
 		root.add_child(cap)
 
 
-## Small text on a dark inset plate: the 5 px face needs a dark ground to stay legible.
-func plate_label(id: String, text: String, x: int, y: int, w: int) -> PixelPanel:
-	var plate := PixelPanel.new(PixelPanel.STYLE_INSET)
-	plate.name = id
-	plate.position = Vector2(x, y)
-	plate.size = Vector2(w, 11)
-	var l := label(text, "tiny", PixelArt.CREAM, 1, HORIZONTAL_ALIGNMENT_CENTER, w - 4, false)
-	l.name = "Text"
-	l.position = Vector2(2, 2)
-	plate.add_child(l)
-	return plate
-
-
-## Sets a plate's text and grows it to fit the wrapped lines.
-func set_plate_text(plate: PixelPanel, text: String) -> void:
-	var l: Label = plate.get_node("Text")
+func set_daily_status(text: String) -> void:
+	var l: Label = screens["title"].get_node("DailyStatus")
 	l.text = txt(text)
 	var lines := maxi(1, l.get_line_count())
-	plate.size.y = 3 + lines * 8
-	plate.queue_redraw()
-
-
-func set_daily_status(text: String) -> void:
-	var plate: PixelPanel = screens["title"].get_node("DailyStatus")
-	set_plate_text(plate, text)
-	plate.position.y = plate.get_meta("slot_y") + (4 if plate.size.y <= 11 else 0)
+	l.position.y = l.get_meta("slot_y") + (4 if lines == 1 else 0)
 
 
 func set_sound(on: bool) -> void:
@@ -299,62 +290,73 @@ class PixelButton extends BaseButton:
 	const STYLE_WOOD := "wood"
 	const STYLE_RED := "red"
 
+	# '#' cream with an ink drop shadow, 'r' red.
 	const ICON_STATS := [
-		"........##.",
-		"........##.",
-		"....##..##.",
-		"....##..##.",
-		".##.##..##.",
-		".##.##..##.",
-		".##.##..##.",
-		"###########",
+		".......r.....",
+		"......rrr....",
+		".......r..###",
+		"..........###",
+		"......###.###",
+		"......###.###",
+		"..###.###.###",
+		"..###.###.###",
+		"..###.###.###",
+		".............",
+		"#############",
 	]
 	const ICON_HOWTO := [
-		"..####..",
-		".##..##.",
-		".....##.",
-		"....##..",
-		"...##...",
-		"...##...",
-		"........",
-		"...##...",
+		"..#####..",
+		".##...##.",
+		"##.....##",
+		".......##",
+		"......##.",
+		"....###..",
+		"...##....",
+		"...##....",
+		".........",
+		"...##....",
+		"...##....",
 	]
 	const ICON_SOUND_ON := [
-		"....#.......",
-		"...##...#...",
-		".####....#..",
-		"#####..#..#.",
-		"#####...#.#.",
-		"#####..#..#.",
-		".####....#..",
-		"...##...#...",
-		"....#.......",
+		".....#.......",
+		"....##....#..",
+		"...###..#..#.",
+		"######...#.#.",
+		"######.#.#..#",
+		"######.#.#..#",
+		"######...#.#.",
+		"...###..#..#.",
+		"....##....#..",
+		".....#.......",
 	]
 	const ICON_SOUND_OFF := [
-		"....#.......",
-		"...##.......",
-		".####..#...#",
-		"#####...#.#.",
-		"#####....#..",
-		"#####...#.#.",
-		".####..#...#",
-		"...##.......",
-		"....#.......",
+		".....#.......",
+		"....##.......",
+		"...###.......",
+		"######.#...#.",
+		"######..#.#..",
+		"######...#...",
+		"######..#.#..",
+		"...###.#...#.",
+		"....##.......",
+		".....#.......",
 	]
 
 	var id := ""
 	var text := ""
 	var style := STYLE_WOOD
 	var text_scale := 1
+	var face := "bold"
 	var icon_rows: Array = []
 	var _panel := {}
 
-	func _init(p_id := "", p_text := "", p_style := STYLE_WOOD, p_scale := 1) -> void:
+	func _init(p_id := "", p_text := "", p_style := STYLE_WOOD, p_scale := 1, p_face := "bold") -> void:
 		id = p_id
 		name = "Btn_" + p_id
 		text = GameUI.txt(p_text) if p_text != "" else ""
 		style = p_style
 		text_scale = p_scale
+		face = p_face
 		focus_mode = Control.FOCUS_NONE
 		mouse_filter = Control.MOUSE_FILTER_STOP
 		button_down.connect(queue_redraw)
@@ -378,75 +380,94 @@ class PixelButton extends BaseButton:
 			for ry in ih:
 				var r: String = icon_rows[ry]
 				for rx in iw:
-					if r[rx] == "#":
+					if r[rx] != ".":
 						draw_rect(Rect2(ox + rx, oy + ry + 1, 1, 1), PixelArt.c(PixelArt.INK))
+			for ry in ih:
+				var r: String = icon_rows[ry]
+				for rx in iw:
+					if r[rx] == "#":
 						draw_rect(Rect2(ox + rx, oy + ry, 1, 1), PixelArt.c(PixelArt.CREAM))
+					elif r[rx] == "r":
+						draw_rect(Rect2(ox + rx, oy + ry, 1, 1), PixelArt.c(PixelArt.RED))
 		if text != "":
-			var f := GameUI.font("bold")
-			var fs := GameUI.font_size("bold", text_scale)
+			var f := GameUI.font(face)
+			var fs := GameUI.font_size(face, text_scale)
 			var tw := int(f.get_string_size(text, HORIZONTAL_ALIGNMENT_LEFT, -1, fs).x)
-			var cap := GameUI.cap_height("bold", text_scale)
+			var cap := GameUI.cap_height(face, text_scale)
 			var tx := (int(size.x) - tw) / 2
-			var base := (int(size.y) - cap) / 2 + cap + shift
+			var base := (int(size.y) - cap + 1) / 2 + cap + shift
 			draw_string(f, Vector2(tx, base + text_scale), text, HORIZONTAL_ALIGNMENT_LEFT, -1, fs, PixelArt.c(PixelArt.INK))
 			draw_string(f, Vector2(tx, base), text, HORIZONTAL_ALIGNMENT_LEFT, -1, fs, PixelArt.c(PixelArt.CREAM))
 
 
-## Wood, red, dark and inset panels, drawn pixel by pixel at an exact size. The grain is
-## seeded from the size so every panel of the same size looks the same.
+## Wood, red, dark and inset panels after the reference buttons: ink outline with clipped
+## corners, a two-pixel bevelled frame, an ink groove, a dark planked fill with sparse grain,
+## diamond nails in the corners and small arrow marks at the ends. Drawn pixel by pixel at
+## an exact size; grain is seeded from the size so equal panels look equal.
 static func panel_image(w: int, h: int, style: String, down := false) -> Image:
 	var P := PixelArt
 	var img := P.new_image(w, h)
-	var fill := P.BROWN
-	var hi := P.LEATHER
-	var lo := P.BROWN_DARK
-	var grain := P.BROWN_DARK
+	var fill := P.BROWN_DARK
+	var lit := P.OCHRE       # outer frame, top and left
+	var frame := P.LEATHER   # inner frame
+	var shade := P.BROWN     # outer frame, bottom and right
+	var grain := P.BROWN
+	var grain2 := P.LEATHER
 	var orn := P.TAN
 	match style:
 		"red":
-			fill = P.BLOOD; hi = P.RED; lo = P.WINE; grain = P.WINE; orn = P.GOLD
+			fill = P.BLOOD; lit = P.ORANGE; frame = P.RED; shade = P.WINE
+			grain = P.WINE; grain2 = P.RED; orn = P.GOLD
 		"dark":
-			fill = P.CHARCOAL; hi = P.BROWN; lo = P.INK; grain = P.INK; orn = P.OCHRE
+			fill = P.CHARCOAL; lit = P.LEATHER; frame = P.BROWN; shade = P.BROWN_DARK
+			grain = P.INK; grain2 = P.PLUM; orn = P.OCHRE
 		"inset":
-			fill = P.INK; hi = P.CHARCOAL; lo = P.BROWN; grain = P.CHARCOAL; orn = -1
+			fill = P.INK; lit = P.BROWN; frame = P.CHARCOAL; shade = P.BROWN_DARK
+			grain = P.CHARCOAL; grain2 = P.CHARCOAL; orn = -1
 	if down:
-		var t := hi
-		hi = lo
-		lo = t
+		var t := lit
+		lit = shade
+		shade = t
 	var ink := P.c(P.INK)
-	# outline with clipped corners
 	P.rect(img, 1, 0, w - 2, h, ink)
 	P.rect(img, 0, 1, w, h - 2, ink)
-	# bevel ring
-	P.rect(img, 1, 1, w - 2, h - 2, P.c(lo))
-	P.rect(img, 1, 1, w - 3, h - 3, P.c(hi))
-	P.rect(img, 2, 2, w - 4, h - 4, P.c(lo))
-	P.rect(img, 3, 3, w - 6, h - 6, P.c(fill))
-	# grain: sparse broken horizontal streaks
+	P.rect(img, 1, 1, w - 2, h - 2, P.c(shade))
+	P.rect(img, 1, 1, w - 3, h - 3, P.c(lit))
+	P.rect(img, 2, 2, w - 4, h - 4, P.c(frame))
+	P.rect(img, 3, 3, w - 6, h - 6, ink)
+	P.rect(img, 4, 4, w - 8, h - 8, P.c(fill))
 	var rng := RandomNumberGenerator.new()
 	rng.seed = hash("%s%d%d" % [style, w, h])
 	var gy := 5 + (1 if down else 0)
-	while gy < h - 4:
-		var gx := 4 + rng.randi_range(0, 6)
-		while gx < w - 5:
-			var run := rng.randi_range(3, 10)
-			P.hline(img, gx, mini(gx + run, w - 5), gy, P.c(grain))
-			gx += run + rng.randi_range(4, 14)
-		gy += rng.randi_range(3, 5) if style == "wood" or style == "red" else rng.randi_range(7, 11)
-	# corner ornaments: tiny diamonds
+	var sparse := style == "dark" or style == "inset"
+	while gy < h - 5:
+		var gx := 5 + rng.randi_range(0, 8)
+		while gx < w - 6:
+			var run := rng.randi_range(3, 12)
+			var c := grain2 if rng.randf() < 0.25 else grain
+			P.hline(img, gx, mini(gx + run, w - 6), gy, P.c(c))
+			gx += run + rng.randi_range(5, 16)
+		gy += rng.randi_range(7, 11) if sparse else rng.randi_range(3, 5)
 	if orn >= 0 and w >= 16 and h >= 14:
-		for cxy in [Vector2i(5, 5), Vector2i(w - 6, 5), Vector2i(5, h - 6), Vector2i(w - 6, h - 6)]:
-			P.px(img, cxy.x, cxy.y, P.c(orn))
-			if h >= 20:
-				P.px(img, cxy.x - 1, cxy.y, P.c(lo))
-				P.px(img, cxy.x + 1, cxy.y, P.c(lo))
-	# bullet holes on the red button
+		for cxy in [Vector2i(3, 3), Vector2i(w - 4, 3), Vector2i(3, h - 4), Vector2i(w - 4, h - 4)]:
+			for d in [Vector2i(0, -1), Vector2i(-1, 0), Vector2i(1, 0), Vector2i(0, 1)]:
+				P.px(img, cxy.x + d.x, cxy.y + d.y, P.c(orn))
+			P.px(img, cxy.x, cxy.y, ink)
+		if w >= 40 and h >= 18:  # arrow marks at the ends
+			var my := h / 2 + (1 if down else 0)
+			for side in [-1, 1]:
+				var x0 := 6 if side < 0 else w - 7
+				P.px(img, x0, my, P.c(orn))
+				P.px(img, x0 - side, my, P.c(orn))
+				P.px(img, x0 - side * 2, my, P.c(frame))
+				P.px(img, x0 - side, my - 1, P.c(frame))
+				P.px(img, x0 - side, my + 1, P.c(frame))
 	if style == "red" and w >= 60 and h >= 20:
-		for hx in [w / 5, w - w / 6]:
+		for hx in [w / 6, w - w / 7]:
 			var hy := h / 2 + (2 if hx > w / 2 else -2)
-			P.px(img, hx, hy, ink)
-			P.px(img, hx + 1, hy, ink)
-			P.px(img, hx, hy + 1, ink)
-			P.px(img, hx + 1, hy + 1, P.c(P.WINE))
-			P.px(img, hx - 1, hy - 1, P.c(P.WINE))
+			for d in [Vector2i(-1, -1), Vector2i(2, 2), Vector2i(-2, 1), Vector2i(3, -1), Vector2i(1, -2)]:
+				P.px(img, hx + d.x, hy + d.y, P.c(P.WINE))
+			P.px(img, hx - 1, hy, P.c(P.RED))
+			P.px(img, hx, hy - 1, P.c(P.RED))
+			P.rect(img, hx, hy, 2, 2, ink)
 	return img

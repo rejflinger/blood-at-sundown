@@ -1,0 +1,17 @@
+[remap]
+
+importer="font_data_bmfont"
+type="FontFile"
+uid="uid://sunlaxogq7ie"
+path="res://.godot/imported/tiny_ol.fnt-e0c93cf7a1bcbfb60c94adc997090cd3.fontdata"
+
+[deps]
+
+source_file="res://assets/fonts/tiny_ol.fnt"
+dest_files=["res://.godot/imported/tiny_ol.fnt-e0c93cf7a1bcbfb60c94adc997090cd3.fontdata"]
+
+[params]
+
+fallbacks=[]
+compress=true
+scaling_mode=2

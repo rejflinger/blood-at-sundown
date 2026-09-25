@@ -1,0 +1,17 @@
+[remap]
+
+importer="font_data_bmfont"
+type="FontFile"
+uid="uid://drj15dswjjc77"
+path="res://.godot/imported/tall.fnt-38622b7111efe82e9c11861274400aff.fontdata"
+
+[deps]
+
+source_file="res://assets/fonts/tall.fnt"
+dest_files=["res://.godot/imported/tall.fnt-38622b7111efe82e9c11861274400aff.fontdata"]
+
+[params]
+
+fallbacks=[]
+compress=true
+scaling_mode=2

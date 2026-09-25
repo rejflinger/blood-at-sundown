@@ -20,12 +20,12 @@ FIXED = [
     ("BLOOD",      "a3161f"),
     ("RED",        "dc2f2a"),  # fresh blood, primary button
     ("ORANGE",     "d8662e"),
-    ("GOLD",       "f0a441"),  # lamps, mustard stripes
+    ("GOLD",       "d49a30"),  # lamps, mustard stripes
     ("CREAM",      "f3e2bd"),  # type, shirts, fringe
     ("BROWN_DARK", "3a2217"),
     ("BROWN",      "5b3620"),
-    ("LEATHER",    "86532d"),
-    ("OCHRE",      "b3793c"),
+    ("LEATHER",    "874a2b"),
+    ("OCHRE",      "b26a36"),
     ("TAN",        "d4a266"),
     ("SKIN_LIGHT", "e8b98a"),
     ("SKIN",       "bf7f56"),
@@ -40,14 +40,14 @@ FIXED = [
 
 # Swappable ramps: (name, gold dusk, deep red dusk)
 SWAP = [
-    ("SKY_TOP",  "5c3a6c", "2a1430"),
-    ("SKY_HIGH", "a24c68", "5c1a34"),
-    ("SKY_MID",  "dc6e48", "9c2a2c"),
-    ("SKY_LOW",  "f0a050", "c8402c"),
-    ("HORIZON",  "f8c870", "e26a36"),
-    ("SUN",      "fff0b4", "f8b060"),
-    ("RIM",      "f8c060", "ec7440"),
-    ("DUST",     "e2b27a", "b8805a"),
+    ("SKY_TOP",  "4b2750", "2a1026"),
+    ("SKY_HIGH", "8c2f4a", "5a1428"),
+    ("SKY_MID",  "c9432f", "8e1e22"),
+    ("SKY_LOW",  "e8702e", "b83224"),
+    ("HORIZON",  "f7a53c", "d95a2c"),
+    ("SUN",      "fdd66a", "f4924a"),
+    ("RIM",      "f8bf5a", "e0602e"),
+    ("DUST",     "e0a468", "b87a50"),
 ]
 
 NAMES = [n for n, _ in FIXED] + [n for n, _, _ in SWAP]

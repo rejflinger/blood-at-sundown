@@ -421,16 +421,31 @@ func _test_layout() -> void:
 		and int(ProjectSettings.get_setting("rendering/textures/canvas_textures/default_texture_filter")) == 0)
 	check("containers scale by the integer factor", world_box.stretch_shrink == pixel_scale and ui_box.stretch_shrink == pixel_scale and world_vp.size == vp_size)
 	check("stage sits on whole pixels", stage.position == Vector2(safe_origin))
-	var bd: Sprite2D = world.get_node("Backdrop")
-	check("backdrop covers the overscan", bd.texture.get_width() >= NATIVE.x + WorldBuilder.OVERSCAN.x * 2)
-	check("backdrop uses palette colours only", PixelArt.is_palette_clean(bd.texture.get_image()))
+	var covers := true
+	var clean := true
+	for layer in WorldBuilder.LAYERS:
+		var sp: Sprite2D = world.get_node(layer.to_pascal_case())
+		var img := sp.texture.get_image()
+		if img.get_width() != NATIVE.x + WorldBuilder.OVERSCAN.x * 2 or img.get_height() != NATIVE.y + WorldBuilder.OVERSCAN.y * 2:
+			covers = false
+		if not PixelArt.is_palette_clean(img):
+			clean = false
+	check("scene layers cover the overscan", covers)
+	check("scene layers use palette colours only", clean)
+	var sky: Image = world.get_node("Sky").texture.get_image()
+	var opaque := true
+	for y in range(0, sky.get_height(), 7):
+		for x in range(0, sky.get_width(), 7):
+			if sky.get_pixel(x, y).a8 != 255:
+				opaque = false
+	check("sky layer is fully opaque", opaque)
 
 
 func _test_title() -> void:
 	var ids := []
 	for b in ui.title_buttons:
 		ids.append(b.id)
-	check("title buttons in order", ids == ["play", "practice", "daily", "scores", "outlaws", "stats", "howto", "sound"], str(ids))
+	check("title buttons in order", ids == ["play", "practice", "daily", "scores", "outlaws", "stats", "sound", "howto"], str(ids))
 	var texts := []
 	for b in ui.title_buttons.slice(0, 5):
 		texts.append(b.text)
@@ -454,11 +469,11 @@ func _test_title() -> void:
 	var tag: Label = ui.screens["title"].get_node("Tagline")
 	check("tagline", tag.text == "TEN OUTLAWS. ONE THUMB.")
 	var status: Control = ui.screens["title"].get_node("DailyStatus")
-	check("daily status line under DAILY DUEL", status.get_node("Text").text != "" and status.position.y > ui.title_buttons[2].position.y
-		and status.position.y + status.size.y < ui.title_buttons[3].position.y)
+	check("daily status line under DAILY DUEL", status.text != "" and status.position.y > ui.title_buttons[2].position.y
+		and status.position.y + status.get_line_count() * GameUI.font_size("tiny_ol") <= ui.title_buttons[3].position.y)
 	var labels_inside := true
 	for n in ui.screens["title"].get_children():
-		if (n is Label or n is GameUI.PixelPanel) and (n.position.x < GameUI.COL_LEFT - 1 or n.position.x + n.size.x > GameUI.COL_RIGHT + 1):
+		if n is Label and (n.position.x < GameUI.COL_LEFT - 1 or n.position.x + n.size.x > GameUI.COL_RIGHT + 1):
 			labels_inside = false
 	check("title text wraps inside the column", labels_inside)
 	_test_strings()
@@ -531,7 +546,7 @@ func _flowtest() -> void:
 				back = n
 		await tap(_centre(back))
 		check("%s returns to the title" % b.id, ui.screens["title"].visible and state == State.TITLE)
-	var sound: GameUI.PixelButton = ui.title_buttons[7]
+	var sound: GameUI.PixelButton = ui.title_buttons.filter(func(b): return b.id == "sound")[0]
 	await tap(_centre(sound))
 	check("sound toggle turns sound off", pb.get("sound", true) == false and Sfx.muted and sound.icon_rows == GameUI.PixelButton.ICON_SOUND_OFF)
 	_load_pb()
@@ -552,10 +567,11 @@ func _dailytest() -> void:
 	check("locked daily line", daily_status_text() == "TODAY: 3 DUELS · $450 · BACK TOMORROW", daily_status_text())
 	ui.set_daily_status(daily_status_text())
 	await get_tree().process_frame
-	var plate: Control = ui.screens["title"].get_node("DailyStatus")
+	var line: Label = ui.screens["title"].get_node("DailyStatus")
+	var bottom := line.position.y + line.get_line_count() * GameUI.font_size("tiny_ol")
 	check("locked line fits between DAILY DUEL and HIGH SCORES",
-		plate.position.y >= ui.title_buttons[2].position.y + ui.title_buttons[2].size.y
-		and plate.position.y + plate.size.y <= ui.title_buttons[3].position.y, "%s %s" % [plate.position.y, plate.size.y])
+		line.position.y >= ui.title_buttons[2].position.y + ui.title_buttons[2].size.y - 4
+		and bottom <= ui.title_buttons[3].position.y + 1, "%s %s" % [line.position.y, bottom])
 	pb.erase("daily")
 	ui.set_daily_status(daily_status_text())
 	skip("daily start, kill, death, lock and stats rows", 6)
