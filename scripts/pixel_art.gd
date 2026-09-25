@@ -3,14 +3,18 @@ extends RefCounted
 ## Palette, raster tools and (later) sprite generation. Everything here works on Image at
 ## native resolution with hard edges: no blending, no antialiasing, palette colours only.
 
-# Palette indices. Order matches tools/palette.py, which writes assets/palette.png.
+# Palette indices. Order matches tools/palette.py, which writes assets/palette.png and
+# assets/palette_names.txt (the autotest checks the two agree).
 enum {
-	INK, CHARCOAL, PLUM, PLUM_LIGHT, WINE, BLOOD, RED, ORANGE, GOLD, CREAM,
-	BROWN_DARK, BROWN, LEATHER, OCHRE, TAN, SKIN_LIGHT, SKIN, SKIN_DARK,
-	TEAL_DARK, TEAL, TEAL_LIGHT, SLATE, GREY, SILVER,
-	SKY_TOP, SKY_HIGH, SKY_MID, SKY_LOW, HORIZON, SUN, RIM, DUST,
+	INK, CHARCOAL, SHADOW, PLUM, PLUM_LIGHT, MAUVE, WINE_DARK, WINE, MAROON, BLOOD, RED,
+	RED_LIGHT, RUST, ORANGE, AMBER, GOLD, LAMP, LAMP_HOT, CREAM, CREAM_SHADE, PALE,
+	BROWN_BLACK, BROWN_DARK, BROWN, BROWN_MID, LEATHER, OCHRE, TAN, SAND, SKIN_DEEP,
+	SKIN_DARK, SKIN, SKIN_LIGHT, TEAL_DARK, TEAL, TEAL_LIGHT, TEAL_PALE, NAVY, SLATE, BLUE,
+	BLUE_LIGHT, GREY_DARK, GREY, SILVER, STEEL_HI, OLIVE_DARK, OLIVE, SAGE, SKY_TOP,
+	SKY_UPPER, SKY_HIGH, SKY_MID, SKY_WARM, SKY_LOW, HORIZON, HORIZON_HOT, SUN, SUN_CORE, RIM,
+	RIM_HOT, DUST, DUST_LIGHT, HAZE, MESA_LIT,
 }
-const PALETTE_SIZE := 32
+const PALETTE_SIZE := 64
 const FIRST_SWAP := SKY_TOP
 const PALETTE_PATH := "res://assets/palette.png"
 

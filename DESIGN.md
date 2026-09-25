@@ -8,11 +8,11 @@ Write the game in English. No em-dashes anywhere in UI text. Keep in-duel prompt
 
 ## 0. Reference images
 
-`reference/` holds four concept images. They define the **look**: palette, composition, pixel vocabulary, UI framing, character silhouettes. They do **not** define content: where an image and this text disagree on names, menu items, mechanics, HUD values or screens, **this text wins**. The images were generated as concept art at a much higher resolution than the game; do not copy pixels from them, reproduce the style at the native 195 x 422 resolution.
+`reference/` holds four concept images. They define the **look**: palette, composition, pixel vocabulary, UI framing, character silhouettes. They do **not** define content: where an image and this text disagree on names, menu items, mechanics, HUD values or screens, **this text wins**. The images were generated as concept art at a much higher resolution than the game; do not copy pixels from them, reproduce the style at the native 270 x 584 resolution (section 15).
 
 - `bas_screens.png`: 18 concept screens. Use for: card and panel framing (dark wood panels, cream pixel type, red primary button, arrow ornaments), HUD placement (bounty top left, duel number and cylinder top right, aim ladder HEAD/CHEST/GUT bottom right, prompt word centred), the practice dummy on a post, the HOW TO PLAY card (4), the hit and fall frames (7 and 8), the round-clear and game-over cards (9, 10), the high-score list (11, without the Global/Friends tabs), the stats card (14), the outlaw detail card (15), the pause panel (18). **Not in this version, do not build:** Splash "tap to start" (1, no tap-anywhere), Achievements (12), the Settings page (13), Quit confirm (16), Loading (17), Global/Friends score tabs. They may come later, so keep the menu code open for more buttons. The HUD shows the bounty earned this run in dollars, not a score.
 - `bas_title.png`: the title composition. Player from behind lower left in the striped teal poncho with cream fringe, town flanking the street, sun between the mesas, windmill and water tower, lit windows, horses, logo at the top, buttons stacked in the lower half. Button order from section 9 (PLAY, PRACTICE, DAILY DUEL, HIGH SCORES, OUTLAWS, then the icon row).
-- `bas_duel.png`: the duel view and its scale. The outlaw stands centred on the street, roughly 90 to 115 native pixels tall, face and hands readable, gun hand at the hip. Player hat and poncho in the lower left, a crate lower right, DRAW word centred under the outlaw, aim ladder lower right, cylinder and duel number top right. Match the dusk banding of the sky and the warm rim light.
+- `bas_duel.png`: the duel view and its scale. The outlaw stands centred on the street, roughly 125 to 155 native pixels tall, face and hands readable, gun hand at the hip. Player hat and poncho in the lower left, a crate lower right, DRAW word centred under the outlaw, aim ladder lower right, cylinder and duel number top right. Match the dusk banding of the sky and the warm rim light.
 - `bas_characters.png`: **the cast.** The player figure and the eight named outlaws are built to match these models and names: silhouette, clothing, colours, hair, face, pose. Section 8 assigns their numbers, quirks and bounties. Full-body sprites, adult proportions, strong silhouettes, faces with visible eyes and mouth, revolvers as readable silhouettes. One change: Silas Crow carries a revolver, not a rifle; nobody in the game carries a rifle.
 
 ---
@@ -27,7 +27,7 @@ Desktop controls for testing: hold and release Space, aim with Up/Down or W/S.
 
 ## 2. Project setup
 
-- Portrait base resolution 390 x 844 for layout and touch input. Draw the world into a 195 x 422 `SubViewport` with transparent background disabled and nearest-neighbour texture filtering; scale its texture by exactly 2 to the 390 x 844 canvas. For other screen sizes use integer scaling with letterboxing or extend the background without filtering. No interpolation, mipmaps, antialiasing, blur, glow or subpixel camera positions. Snap sprite positions and camera offsets to integer source pixels.
+- Native resolution 270 x 584 for world, UI and touch layout (section 15). Draw the world into a `SubViewport` of that size (plus overscan) with transparent background disabled and nearest-neighbour texture filtering, and scale it by a whole number to the screen: 4x on 1080-wide phones, 5x on 1440-wide, 2x on 720-wide. Where the screen shape differs, extend the background (overscan) without filtering. No interpolation, mipmaps, antialiasing, blur, glow or subpixel camera positions. Snap sprite positions and camera offsets to integer source pixels.
 - Godot 4.3+ (GDScript, Compatibility renderer). One scene `scenes/Main.tscn` with a root Node2D running `scripts/main.gd`. World, actors and effects are Node2D scenes/nodes; HUD is a CanvasLayer outside the world SubViewport. Use 2D collision and joint nodes for physical bodies.
 - Scripts: `main.gd` (game loop and states), `world.gd` (`WorldBuilder`), `character.gd` (`Outlaw` pixel sprite rig and 2D ragdoll), `player_figure.gd` (player silhouette from behind), `gore.gd` (blood, splats, gibs, dust), `ui.gd` (`GameUI`), `sfx.gd`, `outlaws.gd`, `camera_rig.gd`, `ambience.gd`, `pixel_art.gd` (palette, raster tools, sprite generation and animation).
 - Shaders only where useful for hard-edged palette ramps and palette cycling. No 3D shaders or screen post-processing. A shader must preserve exact pixel blocks and palette colours.
@@ -40,12 +40,12 @@ Desktop controls for testing: hold and release Space, aim with Up/Down or W/S.
 
 **Hand-drawn-inspired pixel art Western.** The whole game should share the same illustrated pixel vocabulary as the reference images in `reference/` (section 0), above all `bas_characters.png` and `bas_duel.png`: readable silhouettes, confident clusters of pixels, a limited warm dusk palette, selective outlines, chunky shadows and highlights. The scene must look intentionally drawn at its native resolution, not like filtered 3D or a downscaled render.
 
-- **Pixel discipline:** 195 x 422 native world resolution, nearest-neighbour display, source-aligned positions and hard edges. No smooth contours, gradients, anti-aliasing, film grain, chromatic aberration, bloom, realistic material maps or tiny decorative noise. Every silhouette and shadow should consist of deliberate pixel clusters. Keep one consistent apparent pixel size across characters, scenery and effects.
-- **Palette:** roughly 24 to 32 shared colours. Deep plum and charcoal for outlines/shadows, dusty tan and ochre for ground and skin lights, burnt orange and muted rose at the horizon, desaturated teal for cool shadows, dark wine and bright red for blood. Each character gets one small accent colour. Player poncho: deep teal with mustard and cream stripe clusters. Use two to four shades per material; keep faces and hands legible against the sky.
+- **Pixel discipline:** 270 x 584 native world resolution, nearest-neighbour display, source-aligned positions and hard edges. No smooth contours, gradients, anti-aliasing, film grain, chromatic aberration, bloom, realistic material maps or tiny decorative noise. Every silhouette and shadow should consist of deliberate pixel clusters. Keep one consistent apparent pixel size across characters, scenery and effects.
+- **Palette:** a master palette of about 56 to 64 colours, about 40 to 48 in any one scene. Deep plum and charcoal for outlines/shadows, dusty tan and ochre for ground and skin lights, burnt orange and muted rose at the horizon, desaturated teal for cool shadows, dark wine and bright red for blood. Each character gets one small accent colour. Player poncho: deep teal with mustard and cream stripe clusters. Use three to five shades per material; keep faces and hands legible against the sky.
 - **Lighting:** draw a low sunset behind the outlaw as distinct colour bands and hard-edged highlight clusters. Add warm rim pixels on hat, shoulders and boots and a cool front fill for readable facial features. Shade per sprite, with no smooth lighting or normal maps. Across the eight named duels, palette-swap sky, ground and rim-light ramps from gold to deep red (`sun_t = duel / 7`).
 - **Characters:** full-body, compact but anatomically continuous pixel sprites with recognizable hats, clothing and faces. Adult proportions with modest stylization, no oversized toy heads. Each named outlaw must be identifiable in silhouette and colour at gameplay scale. Use strong poses, visible eyes, nose and mouth clusters, asymmetric details and expressive hands. Draw the weapon as a readable revolver silhouette; Father Elias's cross and Briggs's eyepatch must read clearly. Do not make all characters recolours of one base sprite.
 - **Animation:** hand-authored or procedurally assembled pixel frames and rigid sprite parts, with limited but expressive key poses. Idle breathing, hat/coat sway, steps, hand twitch, draw, recoil, wound, stumble and unique death poses must read without smooth deformation. Quantize motion to source pixels. Keep frame pacing intentional (typically 8 to 12 distinct poses per second) while game timing and input sampling stay precise.
-- **Depth:** a layered 2D stage with foreground player silhouette, middle-ground duel line and parallax town, mesas and sky. Use size, overlap and shadow pixels to suggest depth. Dust and haze are sparse, hard-edged dithered clusters rather than translucent fog.
+- **Depth:** a layered 2D stage with foreground player silhouette, middle-ground duel line and parallax town, mesas and sky. Use size, overlap and shadow pixels to suggest depth. Dust and haze are sparse, pixel-aligned, dithered clusters rather than translucent fog.
 - **Visual review:** capture the title, walk-in, active duel, each outlaw, each death tier and result card at native resolution and nearest-neighbour enlarged size. Check readability on a phone and consistent pixel scale before packaging.
 
 ---
@@ -64,7 +64,7 @@ Desktop controls for testing: hold and release Space, aim with Up/Down or W/S.
 
 ## 5. Characters (pixel sprite rigs)
 
-`Outlaw` extends Node2D and is built from a style dictionary and distinct generated sprite layers/frames. Use a stable visual scale: a standing outlaw should occupy roughly 90 to 115 native pixels from boots to hat, with readable head, chest and gut zones. The actor faces the player. Mirror left/right poses only when appropriate; keep the revolver on the character's right hip.
+`Outlaw` extends Node2D and is built from a style dictionary and distinct generated sprite layers/frames. Use a stable visual scale: a standing outlaw should occupy roughly 125 to 155 native pixels from boots to hat, with readable head, chest and gut zones. The actor faces the player. Mirror left/right poses only when appropriate; keep the revolver on the character's right hip.
 
 - Rig parts: pelvis/hips, torso, head, upper/lower arms, hands, thighs/shins, boots, hat and optional coat tails/hair. Parts overlap through deliberate silhouette pixels to avoid visible gaps; pivots rotate only to snapped poses. Pixel assets must preserve consistent outlines, shade ramps and apparent pixel size.
 - Face library: head and jaw shapes, brow, eyes, nose, mouth, scars, eyepatch, freckles, stubble, moustache, beard, glasses, gold tooth, earrings, hair flower. Eyes and expressions must be legible in the duel view. Hair: short, long, braids, bun, tonsure, bald. Hats: bowler, stetson, boss wide-brim, top hat, veil, hood, none. A flying hat becomes an independently animated sprite.
@@ -167,7 +167,7 @@ Command-line modes on `main.gd` (all headless-safe, print `[autotest]` lines, ex
 - `--aimtest`: hit, graze and miss percentages per zone at normalized spreads 0.012, 0.06, 0.12 and through crouch/sidestep poses.
 - `--dailytest`: daily start, kill, death, lock, stats rows.
 - `--flowtest`: practice, pause and resume and exit, twins, forced near miss, the caller's countdown.
-- `--shot --when=title|ready|intro|kill|corpse|corpsehead|result --round=N [--close] [--practice] --out=path.png`: renders a frame headlessly where supported, otherwise under Xvfb with the Compatibility renderer. Save both native 195 x 422 and exact 2x nearest-neighbour frames for visual review.
+- `--shot --when=title|ready|intro|kill|corpse|corpsehead|result --round=N [--close] [--practice] --out=path.png`: renders a frame headlessly where supported, otherwise under Xvfb with the Compatibility renderer. Save both native 270 x 584 and exact 2x nearest-neighbour frames for visual review.
 - Debug flags for the muscles: `--joint-stiffness=`, `--joint-damping=`, `--gravity=`, `--no-joints`, `--no-impulse`. Test forcing: `force_spread`, `force_tier_roll`, `force_survive`, `force_zone`.
 Always run `--import` headless after deleting `.godot` before tests, because class names are cached there.
 
@@ -208,6 +208,27 @@ anything above that they contradict.
 18. Daily: outlaws keep their own bounties. The daily has its own log and does not go on the main ladder. Kills, headshots and reaction times count in stats.
 19. Tapping II or the back button during the standoff is never a false start; on resume the standoff restarts from ready.
 20. Kin may roll the caller quirk.
-21. 24 to 32 colours is the per-frame budget. Sky and rim ramps swap entries within it; accent colours come from the palette.
+21. Superseded by section 15: master palette of about 56 to 64 colours, about 40 to 48 per scene. Sky and rim ramps swap entries within it; accent colours come from the palette.
 22. No skull progress bar in the HUD.
 23. `project.godot` is marked 4.3 compatible; test with the newest stable. The owner plays in Godot 4.7.2 on Android.
+
+---
+
+## 15. Revised visual target (2026-09-25)
+
+Set by the owner after the first title pass; wins over any older number above.
+
+| | |
+|---|---|
+| Native world | 270 x 584 |
+| Display | integer nearest-neighbour scaling (4x on 1080-wide phones) |
+| Target outlaw height | 125 to 155 px |
+| Master palette | about 56 to 64 colours (the game uses 64: 48 fixed, 16 swapped per duel) |
+| Typical scene | about 40 to 48 colours |
+| Material shading | 3 to 5 shades |
+| Animation | 60 Hz gameplay, 8 to 12 authored poses per second |
+| Lighting | hard pixel clusters, palette ramps, dithered transitions allowed |
+| Atmosphere | sparse pixel-aligned haze allowed |
+| Lamp and sun glow | dithered or stepped pixels only |
+| Filtering | nearest neighbour |
+| Anti-aliasing, bloom, blur, smooth gradients, subpixel movement | off |

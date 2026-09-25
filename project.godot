@@ -16,8 +16,8 @@ Sfx="*res://scripts/sfx.gd"
 
 [display]
 
-window/size/viewport_width=390
-window/size/viewport_height=844
+window/size/viewport_width=540
+window/size/viewport_height=1168
 window/stretch/mode="disabled"
 window/handheld/orientation=1
 window/energy_saving/keep_screen_on=true

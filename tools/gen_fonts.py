@@ -4,8 +4,9 @@ Three faces, all hand-authored here as '#' bitmaps:
   tiny  5 px caps, mixed case, 8 px line  (HUD rows, sub lines, captions)
   body  7 px caps, mixed case, 10 px line (card text, prompts)
   bold  body thickened one pixel sideways (buttons, DRAW at 2x and up)
-  tall  bold stretched to 10 px caps (PLAY, card titles)
-  tiny_ol, bold_ol  cream glyphs with a baked ink ring, for text straight over the scene
+  tall  bold stretched to 9 px caps (buttons)
+  huge  bold stretched to 13 px caps (PLAY, card titles, DRAW)
+  tiny_ol, body_ol, bold_ol  cream glyphs with a baked ink ring, for text straight over the scene
 
 Glyph pixels are white; the game tints them with palette colours. Godot imports .fnt
 natively; ui.gd sets integer-only scaling so a font drawn at 2x its size stays crisp.
@@ -175,9 +176,15 @@ def embolden(rows):
     return out
 
 
-def stretch_tall(rows, base):
-    """7 px caps to 10 px: repeat cap rows 1, 3 and 5; keep descenders."""
-    order = [0, 1, 1, 2, 3, 3, 4, 5, 5, 6] + list(range(base, len(rows)))
+# Which 7 px cap rows to repeat for each stretched cap height. Descenders are kept as is.
+STRETCH = {
+    9: [0, 1, 2, 2, 3, 4, 4, 5, 6],
+    13: [0, 0, 1, 1, 2, 2, 3, 4, 4, 5, 5, 6, 6],
+}
+
+
+def stretch_tall(rows, base, cap):
+    order = STRETCH[cap] + list(range(base, len(rows)))
     return [rows[i] for i in order]
 
 
@@ -204,20 +211,20 @@ FILL = (243, 226, 189, 255)   # palette CREAM
 RING = (27, 16, 34, 255)      # palette INK
 
 
-def build(name, glyphs, rows, base, space, spacing, bold=False, tall=False, outline=False):
+def build(name, glyphs, rows, base, space, spacing, bold=False, tall=0, outline=False):
     cells = {}
     for ch, bm in glyphs.items():
         bm = pad(bm, rows)
         if bold:
             bm = embolden(bm)
         if tall:
-            bm = stretch_tall(bm, base)
+            bm = stretch_tall(bm, base, tall)
         if outline:
             bm = outlined(bm)
         cells[ch] = bm
     if tall:
-        base += 3
-        rows += 3
+        rows += tall - base
+        base = tall
     line_h = rows + 1
     ch_h = rows + (2 if outline else 0)
     page_w = 256
@@ -269,7 +276,9 @@ def main():
     build("tiny", TINY, TINY_ROWS, TINY_BASE, TINY_SPACE, 1)
     build("body", BODY, BODY_ROWS, BODY_BASE, BODY_SPACE, 1)
     build("bold", BODY, BODY_ROWS, BODY_BASE, BODY_SPACE + 1, 1, bold=True)
-    build("tall", BODY, BODY_ROWS, BODY_BASE, BODY_SPACE + 1, 1, bold=True, tall=True)
+    build("tall", BODY, BODY_ROWS, BODY_BASE, BODY_SPACE + 1, 1, bold=True, tall=9)
+    build("huge", BODY, BODY_ROWS, BODY_BASE, BODY_SPACE + 2, 2, bold=True, tall=13)
+    build("body_ol", BODY, BODY_ROWS, BODY_BASE, BODY_SPACE, 1, outline=True)
     # cream glyphs with a baked ink ring, for text laid straight over the scene
     build("tiny_ol", TINY, TINY_ROWS, TINY_BASE, TINY_SPACE + 1, 1, outline=True)
     build("bold_ol", BODY, BODY_ROWS, BODY_BASE, BODY_SPACE + 1, 1, bold=True, outline=True)

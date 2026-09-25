@@ -7,7 +7,8 @@ disagree, DESIGN.md wins.
 
 ## Stack
 - Godot 4.3+ project, tested by the owner in Godot 4.7 on Android. GDScript, Compatibility
-  renderer, 2D pixel art at a native 195 x 422 world resolution scaled 2x nearest-neighbour.
+  renderer, 2D pixel art at a native 270 x 584 resolution scaled by a whole number, nearest-
+  neighbour (DESIGN.md section 15).
 - Everything is generated: sprites, tiles, fonts if needed, audio and music come from code or
   from the Python scripts in tools/ (PIL, numpy). Never add hand-made or downloaded binary
   assets. Generated PNG and WAV files are committed, but regenerate them with the script rather
@@ -38,8 +39,8 @@ inside a milestone, never at its end.
 
 ## Looking at the game without a phone
     xvfb-run -a -s "-screen 0 1200x1200x24" $GODOT --path . --rendering-driver opengl3 \
-      --resolution 390x844 -- --shot --when=ready --round=3 --out=/tmp/shot.png
-This writes /tmp/shot.png (2x) and /tmp/shot_native.png (195 x 422). Add --screen=howto (or any
+      --resolution 540x1168 -- --shot --when=ready --round=3 --out=/tmp/shot.png
+This writes /tmp/shot.png (2x) and /tmp/shot_native.png (270 x 584). Add --screen=howto (or any
 menu card id) to capture a card. Look at the PNG before calling a visual
 task done, and compare it against the matching image in reference/. Install xvfb with apt if it
 is missing.
@@ -63,7 +64,8 @@ is missing.
 - One feature at a time. Run the tests, render a frame if it is visual, then commit with a
   short message describing the player-facing change.
 - Never break pixel discipline: no filtering, no subpixel positions, no alpha-blended
-  gradients, no post-processing. If a shortcut needs one of these, find another shortcut.
+  gradients, no post-processing. Glows and haze are dithered or stepped palette pixels only.
+  If a shortcut needs one of these, find another shortcut.
 - No em-dashes in any UI text. In-duel prompts are two or three words ("Missed · 4 left").
 - Every UI string goes through ui.gd helpers; every sound through Sfx.play.
 - Outlaw traits are data in outlaws.gd; quirk logic lives in main.gd next to the other quirks.

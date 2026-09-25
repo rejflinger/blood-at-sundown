@@ -1,28 +1,28 @@
 class_name GameUI
 extends Control
-## All UI lives here and is laid out in native pixels (195 x 422) inside the UI SubViewport,
+## All UI lives here and is laid out in native pixels (270 x 584) inside the UI SubViewport,
 ## which main.gd scales by the same integer factor as the world. Every string shown to the
 ## player goes through txt(), which rejects em-dashes and records the string for the tests.
 
 signal action(name: String)
 signal touch(kind: String, pos: Vector2)  # "press", "release", "drag" in native pixels
 
-const NATIVE := Vector2i(195, 422)
-const COL_LEFT := 12    # 0.06 of the width
-const COL_RIGHT := 183  # 0.94 of the width
+const NATIVE := Vector2i(270, 584)
+const COL_LEFT := 16    # 0.06 of the width
+const COL_RIGHT := 254  # 0.94 of the width
 
 # Faces from tools/gen_fonts.py: [line height = font size at 1x, cap height]. The *_ol faces
 # carry a baked ink outline and their own cream colour, for text laid straight over the scene.
 const FACES := {
-	"tiny": [8, 5], "body": [10, 7], "bold": [10, 7], "tall": [13, 10],
-	"tiny_ol": [8, 5], "bold_ol": [10, 7],
+	"tiny": [8, 5], "body": [10, 7], "bold": [10, 7], "tall": [12, 9], "huge": [16, 13],
+	"tiny_ol": [8, 5], "body_ol": [10, 7], "bold_ol": [10, 7],
 }
 const TINY_SIZE := 8
 
 static var strings_seen := {}
 static var _fonts := {}
 
-var safe: Control           # the 195 x 422 play area, centred in the viewport
+var safe: Control           # the 270 x 584 play area, centred in the viewport
 var screens := {}           # name -> Control
 var title_buttons: Array[PixelButton] = []
 var sound_on := true
@@ -140,25 +140,25 @@ func build_title() -> void:
 	logo.name = "Logo"
 	logo.texture = load("res://assets/ui/logo.png")
 	logo.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	logo.position = Vector2((NATIVE.x - logo.texture.get_width()) / 2, 6)
+	logo.position = Vector2((NATIVE.x - logo.texture.get_width()) / 2, 8)
 	root.add_child(logo)
 
 	var tag := label("TEN OUTLAWS. ONE THUMB.", "bold_ol", PixelArt.CREAM, 1,
 			HORIZONTAL_ALIGNMENT_CENTER, COL_RIGHT - COL_LEFT)
 	tag.name = "Tagline"
-	tag.position = Vector2(COL_LEFT, 6 + logo.texture.get_height() + 3)
+	tag.position = Vector2(COL_LEFT, 8 + logo.texture.get_height() + 3)
 	root.add_child(tag)
 
-	var x := 67
-	var w := 90
-	var y := 234
+	var x := 93
+	var w := 125
+	var y := 318
 	title_buttons.clear()
 	for spec in [
-		["play", "PLAY", PixelButton.STYLE_RED, 26, "tall"],
-		["practice", "PRACTICE", PixelButton.STYLE_WOOD, 21, "bold"],
-		["daily", "DAILY DUEL", PixelButton.STYLE_WOOD, 21, "bold"],
-		["scores", "HIGH SCORES", PixelButton.STYLE_WOOD, 21, "bold"],
-		["outlaws", "OUTLAWS", PixelButton.STYLE_WOOD, 21, "bold"],
+		["play", "PLAY", PixelButton.STYLE_RED, 38, "huge"],
+		["practice", "PRACTICE", PixelButton.STYLE_WOOD, 30, "tall"],
+		["daily", "DAILY DUEL", PixelButton.STYLE_WOOD, 30, "tall"],
+		["scores", "HIGH SCORES", PixelButton.STYLE_WOOD, 30, "tall"],
+		["outlaws", "OUTLAWS", PixelButton.STYLE_WOOD, 30, "tall"],
 	]:
 		var b := PixelButton.new(spec[0], spec[1], spec[2], 1, spec[4])
 		b.position = Vector2(x, y)
@@ -166,34 +166,34 @@ func build_title() -> void:
 		b.pressed.connect(_emit.bind(spec[0]))
 		root.add_child(b)
 		title_buttons.append(b)
-		y += spec[3] + 5
+		y += spec[3] + 7
 		if spec[0] == "daily":
 			# centred under the button, as wide as the column allows on its right side
 			var sw := 2 * (COL_RIGHT - (x + w / 2))
-			var status := label("", "tiny_ol", PixelArt.CREAM, 1, HORIZONTAL_ALIGNMENT_CENTER, sw)
+			var status := label("", "body_ol", PixelArt.CREAM, 1, HORIZONTAL_ALIGNMENT_CENTER, sw)
 			status.name = "DailyStatus"
-			status.position = Vector2(x + w / 2 - sw / 2, y - 4)
-			status.set_meta("slot_y", y - 4)  # room for two lines; one line sits centred
+			status.position = Vector2(x + w / 2 - sw / 2, y - 5)
+			status.set_meta("slot_y", y - 5)  # room for two lines; one line sits centred
 			root.add_child(status)
-			y += 12
+			y += 18
 
 	# Icon row as in the reference: stats bottom left, sound and how to play bottom right.
 	for spec in [
-		["stats", "STATS", PixelButton.ICON_STATS, 12],
-		["sound", "SOUND", PixelButton.ICON_SOUND_ON, 94],
-		["howto", "HOW TO PLAY", PixelButton.ICON_HOWTO, 161],
+		["stats", "STATS", PixelButton.ICON_STATS, COL_LEFT],
+		["sound", "SOUND", PixelButton.ICON_SOUND_ON, 132],
+		["howto", "HOW TO PLAY", PixelButton.ICON_HOWTO, COL_RIGHT - 32],
 	]:
 		var b := PixelButton.new(spec[0], "", PixelButton.STYLE_WOOD, 1)
 		b.icon_rows = spec[2]
-		b.position = Vector2(spec[3], 382)
-		b.size = Vector2(22, 22)
+		b.position = Vector2(spec[3], 530)
+		b.size = Vector2(32, 32)
 		b.pressed.connect(_emit.bind(spec[0]))
 		root.add_child(b)
 		title_buttons.append(b)
-		var cw := int(font("tiny_ol").get_string_size(spec[1], HORIZONTAL_ALIGNMENT_LEFT, -1, TINY_SIZE).x) + 2
-		var cap := label(spec[1], "tiny_ol", PixelArt.CREAM, 1, HORIZONTAL_ALIGNMENT_CENTER, cw)
+		var cw := int(font("body_ol").get_string_size(spec[1], HORIZONTAL_ALIGNMENT_LEFT, -1, font_size("body_ol")).x) + 2
+		var cap := label(spec[1], "body_ol", PixelArt.CREAM, 1, HORIZONTAL_ALIGNMENT_CENTER, cw)
 		cap.name = "Cap_" + spec[0]
-		cap.position = Vector2(clampi(spec[3] + 11 - cw / 2, COL_LEFT, COL_RIGHT - cw), 407)
+		cap.position = Vector2(clampi(spec[3] + 16 - cw / 2, COL_LEFT, COL_RIGHT - cw), 565)
 		root.add_child(cap)
 
 
@@ -201,7 +201,7 @@ func set_daily_status(text: String) -> void:
 	var l: Label = screens["title"].get_node("DailyStatus")
 	l.text = txt(text)
 	var lines := maxi(1, l.get_line_count())
-	l.position.y = l.get_meta("slot_y") + (4 if lines == 1 else 0)
+	l.position.y = l.get_meta("slot_y") + (5 if lines == 1 else 0)
 
 
 func set_sound(on: bool) -> void:
@@ -224,37 +224,37 @@ func build_card(id: String, title: String, lines: Array, button_text: String, bu
 	screens[id] = root
 
 	var panel := PixelPanel.new(PixelPanel.STYLE_DARK)
-	panel.position = Vector2(COL_LEFT, 40)
-	panel.size = Vector2(COL_RIGHT - COL_LEFT, 330)
+	panel.position = Vector2(COL_LEFT, 56)
+	panel.size = Vector2(COL_RIGHT - COL_LEFT, 460)
 	root.add_child(panel)
 
-	var t := label(title, "bold", PixelArt.CREAM, 2, HORIZONTAL_ALIGNMENT_CENTER, COL_RIGHT - COL_LEFT - 16)
-	t.position = Vector2(COL_LEFT + 8, 52)
+	var t := label(title, "huge", PixelArt.CREAM, 1, HORIZONTAL_ALIGNMENT_CENTER, COL_RIGHT - COL_LEFT - 20)
+	t.position = Vector2(COL_LEFT + 10, 74)
 	root.add_child(t)
 
-	var y := 84
+	var y := 112
 	for entry in lines:
 		if entry is Array:  # [heading, body]
 			var box := PixelPanel.new(PixelPanel.STYLE_INSET)
-			box.position = Vector2(COL_LEFT + 8, y)
-			box.size = Vector2(COL_RIGHT - COL_LEFT - 16, 62)
+			box.position = Vector2(COL_LEFT + 10, y)
+			box.size = Vector2(COL_RIGHT - COL_LEFT - 20, 86)
 			root.add_child(box)
-			var h := label(entry[0], "bold", PixelArt.GOLD, 1, HORIZONTAL_ALIGNMENT_LEFT, 110)
-			h.position = Vector2(COL_LEFT + 16, y + 7)
+			var h := label(entry[0], "tall", PixelArt.GOLD, 1, HORIZONTAL_ALIGNMENT_LEFT, 160)
+			h.position = Vector2(COL_LEFT + 22, y + 11)
 			root.add_child(h)
-			var b := label(entry[1], "tiny", PixelArt.CREAM, 1, HORIZONTAL_ALIGNMENT_LEFT, COL_RIGHT - COL_LEFT - 32)
-			b.position = Vector2(COL_LEFT + 16, y + 22)
+			var b := label(entry[1], "body", PixelArt.CREAM, 1, HORIZONTAL_ALIGNMENT_LEFT, COL_RIGHT - COL_LEFT - 44)
+			b.position = Vector2(COL_LEFT + 22, y + 32)
 			root.add_child(b)
-			y += 68
+			y += 94
 		else:
-			var l := label(entry, "body", PixelArt.CREAM, 1, HORIZONTAL_ALIGNMENT_CENTER, COL_RIGHT - COL_LEFT - 24)
-			l.position = Vector2(COL_LEFT + 12, y)
+			var l := label(entry, "body", PixelArt.CREAM, 1, HORIZONTAL_ALIGNMENT_CENTER, COL_RIGHT - COL_LEFT - 32)
+			l.position = Vector2(COL_LEFT + 16, y)
 			root.add_child(l)
-			y += 12 * maxi(1, ceili(entry.length() / 26.0)) + 4
+			y += 12 * maxi(1, ceili(entry.length() / 34.0)) + 6
 
-	var btn := PixelButton.new(button_action, button_text, PixelButton.STYLE_RED, 1)
-	btn.position = Vector2(56, 336)
-	btn.size = Vector2(83, 21)
+	var btn := PixelButton.new(button_action, button_text, PixelButton.STYLE_RED, 1, "tall")
+	btn.position = Vector2((NATIVE.x - 116) / 2, 464)
+	btn.size = Vector2(116, 32)
 	btn.pressed.connect(_emit.bind(button_action))
 	root.add_child(btn)
 	return root
@@ -292,54 +292,68 @@ class PixelButton extends BaseButton:
 
 	# '#' cream with an ink drop shadow, 'r' red.
 	const ICON_STATS := [
-		".......r.....",
-		"......rrr....",
-		".......r..###",
-		"..........###",
-		"......###.###",
-		"......###.###",
-		"..###.###.###",
-		"..###.###.###",
-		"..###.###.###",
-		".............",
-		"#############",
+		"...............####",
+		"...............####",
+		"..........rr...####",
+		".........rrrr..####",
+		"..........rr...####",
+		"..........####.####",
+		"..........####.####",
+		".....####.####.####",
+		".....####.####.####",
+		".....####.####.####",
+		".....####.####.####",
+		".....####.####.####",
+		".....####.####.####",
+		"...................",
+		"###################",
+		"###################",
 	]
 	const ICON_HOWTO := [
-		"..#####..",
-		".##...##.",
-		"##.....##",
-		".......##",
-		"......##.",
-		"....###..",
-		"...##....",
-		"...##....",
-		".........",
-		"...##....",
-		"...##....",
+		"...######...",
+		"..########..",
+		".###....###.",
+		".##......##.",
+		".........##.",
+		"........###.",
+		".......###..",
+		"......###...",
+		".....###....",
+		".....##.....",
+		".....##.....",
+		"............",
+		".....##.....",
+		".....##.....",
 	]
 	const ICON_SOUND_ON := [
-		".....#.......",
-		"....##....#..",
-		"...###..#..#.",
-		"######...#.#.",
-		"######.#.#..#",
-		"######.#.#..#",
-		"######...#.#.",
-		"...###..#..#.",
-		"....##....#..",
-		".....#.......",
+		"........#.........",
+		".......##.....#...",
+		"......###..#...#..",
+		".....####...#...#.",
+		"#########...#...#.",
+		"#########.#..#..#.",
+		"#########.#..#..#.",
+		"#########.#..#..#.",
+		"#########...#...#.",
+		".....####...#...#.",
+		"......###..#...#..",
+		".......##.....#...",
+		"........#.........",
 	]
 	const ICON_SOUND_OFF := [
-		".....#.......",
-		"....##.......",
-		"...###.......",
-		"######.#...#.",
-		"######..#.#..",
-		"######...#...",
-		"######..#.#..",
-		"...###.#...#.",
-		"....##.......",
-		".....#.......",
+		"........#.........",
+		".......##.........",
+		"......###.........",
+		".....####.##...##.",
+		"#########..##.##..",
+		"#########...###...",
+		"#########...###...",
+		"#########..##.##..",
+		"#########.##...##.",
+		".....####.........",
+		"......###.........",
+		".......##.........",
+		"........#.........",
 	]
 
 	var id := ""

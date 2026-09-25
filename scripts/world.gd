@@ -3,13 +3,13 @@ extends RefCounted
 ## Builds the layered street scenery from the layers tools/art_scene.py draws: sky, mesas,
 ## town (street, facades, porches, windmill, horses), foreground props and the player seen
 ## from behind. Milestone 2 adds parallax, palette swaps per duel and ambience.
-## World coordinates: the 195 x 422 safe area spans (0, 0) to (195, 422). Every layer is
+## World coordinates: the 270 x 584 safe area spans (0, 0) to (270, 584). Every layer is
 ## drawn OVERSCAN pixels beyond it on each side, so wider or taller screens show more world
 ## instead of black bars.
 
-const NATIVE := Vector2i(195, 422)
-const OVERSCAN := Vector2i(100, 60)
-const HORIZON := 214
+const NATIVE := Vector2i(270, 584)
+const OVERSCAN := Vector2i(140, 150)
+const HORIZON := 296
 const LAYERS := ["sky", "mesas", "town", "fg", "player_back"]
 
 

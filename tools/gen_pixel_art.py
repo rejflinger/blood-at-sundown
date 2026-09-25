@@ -1,7 +1,7 @@
 """Pixel art generator for Blood at Sundown (PIL, numpy).
 
 Milestone 1 output:
-  assets/palette.png   32 x 2 palette (row 0 gold dusk, row 1 deep red dusk)
+  assets/palette.png   64 x 2 palette (row 0 gold dusk, row 1 deep red dusk)
   assets/ui/logo.png   title logo: red BLOOD, cream SUNDOWN, ink outline, drips
   icon.png             192 x 192 app icon (48 x 48 art scaled 4x nearest)
   assets/world/*.png   street scene layers (art_scene.py): sky, mesas, town, fg, player_back
@@ -268,36 +268,38 @@ def gen_palette():
         for i, c in enumerate(P.row(float(t))):
             im.putpixel((i, t), c + (255,))
     im.save(os.path.join(ROOT, "assets", "palette.png"))
+    with open(os.path.join(ROOT, "assets", "palette_names.txt"), "w") as f:
+        f.write("\n".join(P.NAMES) + "\n")
 
 
 def gen_logo():
     """BLOOD in red over SUNDOWN in cream, both on a rough ink splatter with drips."""
     rng = random.Random(1873)
-    W, Hh = 150, 100
+    W, Hh = 214, 140
     img = Image.new("RGBA", (W, Hh), (0, 0, 0, 0))
-    blood = word("BLOOD", 36, {"B": 23, "L": 20, "O": 24, "D": 24}, 7, 5, 1)
-    sundown = word("SUNDOWN", 27, {"S": 16, "U": 16, "N": 17, "D": 16, "O": 16, "W": 22}, 5, 4, 1)
-    bx, by = (W - blood.shape[1]) // 2, 5
-    sx, sy = (W - sundown.shape[1]) // 2, 58
+    blood = word("BLOOD", 50, {"B": 32, "L": 28, "O": 33, "D": 33}, 10, 7, 1)
+    sundown = word("SUNDOWN", 38, {"S": 22, "U": 22, "N": 24, "D": 22, "O": 23, "W": 31}, 7, 5, 1)
+    bx, by = (W - blood.shape[1]) // 2, 6
+    sx, sy = (W - sundown.shape[1]) // 2, 81
 
     # the splatter: letters grown by a few pixels with a ragged edge and drips
     halo = np.zeros((Hh, W), dtype=bool)
     halo[by:by + blood.shape[0], bx:bx + blood.shape[1]] |= blood
     halo[sy:sy + sundown.shape[0], sx:sx + sundown.shape[1]] |= sundown
-    halo[46:53, 22:W - 22] = True
-    for i in range(3):
+    halo[63:73, 30:W - 30] = True
+    for i in range(4):
         halo = dilate(halo)
     for _ in range(2):
         grown = dilate(halo)
         noise = np.array([[rng.random() < 0.45 for _ in range(W)] for _ in range(Hh)])
         halo = halo | (grown & noise)
     bottom = [x for x in range(W) if halo[:, x].any()]
-    for x in rng.sample(bottom, 16):
+    for x in rng.sample(bottom, 22):
         ys = np.nonzero(halo[:, x])[0]
         y0 = ys[-1]
         if y0 < 40 and rng.random() < 0.5:
             continue
-        ln = rng.randint(3, 12)
+        ln = rng.randint(4, 16)
         halo[y0:min(Hh, y0 + ln), x] = True
         if ln > 6:
             halo[y0:min(Hh, y0 + ln - 3), min(W - 1, x + 1)] = True
@@ -313,9 +315,9 @@ def gen_logo():
         if not halo[y, x] and dilate(halo)[y, x]:
             img.putpixel((x, y), C("WINE"))
 
-    paint_word(img, blood, bx, by, C("RED"), C("BLOOD"), C("WINE"), 0.05, C("ORANGE"), rng, drips=6)
+    paint_word(img, blood, bx, by, C("RED"), C("BLOOD"), C("MAROON"), 0.05, C("RED_LIGHT"), rng, drips=8)
     # grunge: a few darker blotches inside BLOOD
-    for _ in range(40):
+    for _ in range(80):
         x, y = rng.randint(0, blood.shape[1] - 2), rng.randint(3, blood.shape[0] - 3)
         if blood[y, x] and blood[y, x + 1]:
             img.putpixel((bx + x, by + y), C("BLOOD"))
@@ -324,18 +326,18 @@ def gen_logo():
     # "AT" between ruled lines with diamond ends
     tw = text_width("AT")
     ax = (W - tw) // 2
-    at_y = 44
+    at_y = 62
     draw_font_text(img, "AT", ax, at_y, C("CREAM"))
     for side in (-1, 1):
         x0 = ax - 4 if side < 0 else ax + tw + 3
-        for i in range(30):
+        for i in range(44):
             img.putpixel((x0 + side * i, at_y + 4), C("TAN"))
-        dx = x0 + side * 30
+        dx = x0 + side * 44
         for ddx, ddy in ((0, -1), (0, 1), (side, 0), (0, 0)):
             img.putpixel((dx + ddx, at_y + 4 + ddy), C("CREAM"))
 
-    paint_word(img, sundown, sx, sy, C("CREAM"), C("TAN"), C("OCHRE"), 0.03, C("CREAM"), rng, drips=0)
-    for _ in range(26):  # blood spatter on the cream letters
+    paint_word(img, sundown, sx, sy, C("CREAM"), C("CREAM_SHADE"), C("TAN"), 0.03, C("PALE"), rng, drips=0)
+    for _ in range(46):  # blood spatter on the cream letters
         x = rng.randint(1, sundown.shape[1] - 3)
         y = rng.randint(1, sundown.shape[0] - 2)
         if sundown[y, x]:

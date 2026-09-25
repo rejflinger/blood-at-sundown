@@ -1,7 +1,7 @@
 extends Node2D
 ## Game loop and states, the render pipeline, persistence and the headless test modes.
 ##
-## Pipeline: the world is drawn into a SubViewport at native resolution (195 x 422 plus any
+## Pipeline: the world is drawn into a SubViewport at native resolution (270 x 584 plus any
 ## overscan the screen shape needs) and shown through a SubViewportContainer that scales it
 ## by an integer factor with nearest-neighbour filtering. The UI has its own native-resolution
 ## SubViewport with a transparent background, scaled the same way and laid over the world, so
@@ -12,7 +12,7 @@ enum State {
 	KILL, RESULT, PLAYERHIT, GAMEOVER, STATS, PAUSED,
 }
 
-const NATIVE := Vector2i(195, 422)
+const NATIVE := Vector2i(270, 584)
 const TEST_MODES := ["autotest", "deathtest", "flowtest", "dailytest", "aimtest"]
 
 var state: int = State.TITLE
@@ -48,7 +48,7 @@ func _ready() -> void:
 	if test_mode != "":
 		pb_path = "user://test_pb.cfg"
 		DirAccess.remove_absolute(ProjectSettings.globalize_path(pb_path))
-		forced_window = Vector2i(390, 844)
+		forced_window = Vector2i(540, 1168)
 		get_tree().root.size = forced_window  # headless windows start tiny; GUI picking needs room
 	_load_pb()
 	_build_pipeline()
@@ -76,7 +76,7 @@ static func parse_args(list: PackedStringArray) -> Dictionary:
 
 
 ## Integer scale and viewport size for a window. The viewport covers the whole window in
-## native pixels; the 195 x 422 safe area sits centred inside it.
+## native pixels; the 270 x 584 safe area sits centred inside it.
 static func compute_layout(win: Vector2i) -> Dictionary:
 	var k := maxi(1, mini(win.x / NATIVE.x, win.y / NATIVE.y))
 	var vp := Vector2i(maxi(NATIVE.x, win.x / k), maxi(NATIVE.y, win.y / k))
@@ -251,7 +251,7 @@ func _do_shot() -> void:
 	get_tree().quit(0)
 
 
-## World and UI composited at native resolution, cropped to the 195 x 422 safe area.
+## World and UI composited at native resolution, cropped to the 270 x 584 safe area.
 func capture_native() -> Image:
 	var w := world_vp.get_texture().get_image()
 	var u := ui_vp.get_texture().get_image()
@@ -322,7 +322,15 @@ func _test_palette() -> void:
 	var uniq := {}
 	for col in pal:
 		uniq[col.to_rgba32()] = true
-	check("palette has 32 distinct colours", pal.size() == 32 and uniq.size() == 32, "%d/%d" % [pal.size(), uniq.size()])
+	check("palette has 64 distinct colours", pal.size() == 64 and uniq.size() == 64, "%d/%d" % [pal.size(), uniq.size()])
+	var names := FileAccess.get_file_as_string("res://assets/palette_names.txt").strip_edges().split("\n")
+	var consts := (load("res://scripts/pixel_art.gd") as Script).get_script_constant_map()
+	var named_ok := names.size() == PixelArt.PALETTE_SIZE
+	for i in names.size():
+		if not consts.has(names[i]) or consts[names[i]] != i:
+			named_ok = false
+	check("palette names in pixel_art.gd match tools/palette.py", named_ok)
+	check("INK is the darkest outline colour", PixelArt.c(PixelArt.INK).to_html(false) == "1b1022")
 	check("sun_t gold at duel 1", is_equal_approx(PixelArt.sun_t_for_duel(1), 0.0))
 	check("sun_t 3/7 at duel 4", is_equal_approx(PixelArt.sun_t_for_duel(4), 3.0 / 7.0))
 	check("sun_t deep red from duel 8", PixelArt.sun_t_for_duel(8) == 1.0 and PixelArt.sun_t_for_duel(40) == 1.0)
@@ -330,14 +338,14 @@ func _test_palette() -> void:
 	var b := PixelArt.palette_at(1.0)
 	var fixed_same := true
 	var swap_diff := true
-	for i in 32:
+	for i in PixelArt.PALETTE_SIZE:
 		if i < PixelArt.FIRST_SWAP and a[i] != b[i]:
 			fixed_same = false
 		if i >= PixelArt.FIRST_SWAP and a[i] == b[i]:
 			swap_diff = false
-	check("sun ramp swaps only the 8 sky, rim and dust entries", fixed_same and swap_diff)
+	check("sun ramp swaps only the 16 sky, sun, rim, dust and haze entries", fixed_same and swap_diff)
 	PixelArt.set_sun(0.5)
-	check("mid-run palette still 32 colours", PixelArt.palette().size() == 32)
+	check("mid-run palette still 64 colours", PixelArt.palette().size() == 64)
 	PixelArt.set_sun(0.0)
 
 
@@ -405,12 +413,16 @@ func _opaque(img: Image) -> int:
 
 
 func _test_layout() -> void:
-	var l := compute_layout(Vector2i(390, 844))
-	check("390x844 is exactly 2x native", l.scale == 2 and l.viewport == NATIVE and l.safe_origin == Vector2i.ZERO)
+	var l := compute_layout(Vector2i(540, 1168))
+	check("540x1168 is exactly 2x native", l.scale == 2 and l.viewport == NATIVE and l.safe_origin == Vector2i.ZERO)
 	l = compute_layout(Vector2i(1080, 2400))
-	check("1080x2400 scales 5x and extends the world", l.scale == 5 and l.viewport == Vector2i(216, 480) and l.safe_origin == Vector2i(10, 29), str(l))
+	check("1080x2400 scales 4x and extends the world", l.scale == 4 and l.viewport == Vector2i(270, 600) and l.safe_origin == Vector2i(0, 8), str(l))
+	l = compute_layout(Vector2i(1440, 3200))
+	check("1440x3200 scales 5x", l.scale == 5 and l.safe_origin.x <= WorldBuilder.OVERSCAN.x and l.safe_origin.y <= WorldBuilder.OVERSCAN.y, str(l))
+	l = compute_layout(Vector2i(720, 1600))
+	check("720x1600 scales 2x inside the overscan", l.scale == 2 and l.safe_origin.x <= WorldBuilder.OVERSCAN.x and l.safe_origin.y <= WorldBuilder.OVERSCAN.y, str(l))
 	l = compute_layout(Vector2i(1536, 2048))
-	check("tablet scales 4x and stays inside the overscan", l.scale == 4 and l.safe_origin.x <= WorldBuilder.OVERSCAN.x and l.safe_origin.y <= WorldBuilder.OVERSCAN.y, str(l))
+	check("tablet scales 3x and stays inside the overscan", l.scale == 3 and l.safe_origin.x <= WorldBuilder.OVERSCAN.x and l.safe_origin.y <= WorldBuilder.OVERSCAN.y, str(l))
 	l = compute_layout(Vector2i(100, 100))
 	check("tiny window falls back to 1x native", l.scale == 1 and l.viewport == NATIVE)
 	check("world viewport is opaque", not world_vp.transparent_bg)
@@ -457,13 +469,13 @@ func _test_title() -> void:
 		var r := Rect2(ui.title_buttons[i].position, ui.title_buttons[i].size)
 		if r.position.x < GameUI.COL_LEFT or r.end.x > GameUI.COL_RIGHT or r.end.y > NATIVE.y:
 			inside = false
-		if r.size.y < 20 or r.size.x < 20:
+		if r.size.y < 26 or r.size.x < 26:
 			big_enough = false
 		for j in range(i + 1, ui.title_buttons.size()):
 			if r.intersects(Rect2(ui.title_buttons[j].position, ui.title_buttons[j].size)):
 				overlap = true
 	check("title buttons inside the 0.06 to 0.94 column", inside)
-	check("touch targets at least 20 native px (40 on the 390 canvas)", big_enough)
+	check("touch targets at least 26 native px (7 mm at 4x on a 1080 phone)", big_enough)
 	check("title buttons do not overlap", not overlap)
 	check("PLAY is the large red button", ui.title_buttons[0].style == "red" and ui.title_buttons[0].size.y > ui.title_buttons[1].size.y)
 	var tag: Label = ui.screens["title"].get_node("Tagline")
