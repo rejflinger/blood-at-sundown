@@ -40,6 +40,17 @@ def main():
     layers_dir = os.path.join(a.out, "layers")
     os.makedirs(layers_dir, exist_ok=True)
     comp = art_scene.build(layers_dir)
+    allowed = {c_ + (255,) for c_ in P.all_colours()}
+    bad = []
+    for name in art_scene.LAYER_NAMES:
+        im = Image.open(os.path.join(layers_dir, name + ".png")).convert("RGBA")
+        if im.size != (SAFE_W + 2 * OX, SAFE_H + 2 * OY):
+            bad.append("%s: size %s" % (name, im.size))
+        cols = {px for _n, px in im.getcolors(1 << 20) if px[3] != 0}
+        stray = [px for px in cols if px not in allowed]
+        if stray:
+            bad.append("%s: %d colours outside the palette or not fully opaque, e.g. %s" % (name, len(stray), stray[:3]))
+    print("PIXEL RULES:", "PASS" if not bad else "FAIL\n  " + "\n  ".join(bad))
     view = comp.crop((OX, OY, OX + SAFE_W, OY + SAFE_H))
     if not a.no_ui:
         logo = Image.open(os.path.join(ROOT, "assets", "ui", "logo.png"))
