@@ -180,3 +180,34 @@ Packaging: delete `.godot` and all `*.import` files, zip the project folder. Exp
 Western pulp, dry, short. Crime lines like "Horse thief. Drunk before noon, dead by dusk." Result lines like "Headshot. Clean through the skull." Death card: "Buried at sundown". No jokes at the player's expense beyond "You twitched". Tier names in caps: EXECUTION, DEADEYE, BUTCHER, GUNSLINGER, GUTSHOT. In-duel prompts: "Missed · 4 left", "Grazed · 3 left", "Still up · 2 left", "Chest shot · still up · fire again · 1 left", "5 left · tap to keep firing · stop here for the bonus", "Click · empty".
 
 Build it in that order, test after each step, and commit after each section with a one-line summary of the player-facing change. The owner tests every milestone on a phone in the Godot 4.7 editor and reports back.
+
+---
+
+## 14. Owner clarifications (2026-09-25)
+
+Answers to open questions, numbered as asked. They are part of the spec and win over
+anything above that they contradict.
+
+1. The revolver cylinder sits top right next to the duel number.
+2. The HEAD/CHEST/GUT aim ladder sits bottom right. The sound toggle appears only on the title and the pause panel.
+3. EXECUTION (head under 165 ms, 20 percent) is the live kill condition. The 12 percent skull burst applies only to shots into a corpse's head and is separate.
+4. Fonts are bitmap fonts generated in `tools/gen_fonts.py`.
+5. The big prompt word is two or three words; the small line under it may be a short sentence. The section 13 examples are allowed as written.
+6. `sun_t = clamp((duel - 1) / 7, 0, 1)`: gold at duel 1, deep red from duel 8 on.
+7. The death card has RETRY and MAIN MENU buttons like screen 10. If the run makes the top ten, a three-letter tag picker (tap letters, no keyboard) appears on the death card before the buttons become active.
+8. A rail and a trough stand at mid street near the outlaw's line to catch bodies; the crate stays in the foreground lower right.
+9. `draw2` is the player's AGAIN window, `engage` is the exchange after a wound, `stats` is a menu screen.
+10. The scripted pose-and-collision fall is the main death path. Rigid bodies only for the arm, hat, gun and gibs. Depth by size: a body falling backward shrinks slightly and slides up the street, one falling forward grows toward the camera. Most variants end lying across the street as a sideways silhouette.
+11. False start: the player cannot fire in the 0.42 s window. His shot uses his normal miss chance; if he misses, DRAW comes at once and the duel continues normally. Releasing during the caller's THREE, TWO, ONE is a false start.
+12. CLANG is not a wound. Silas's chest survival is 65 percent; when the plate fails it is a normal bloody GUNSLINGER kill. Head and gut are unaffected.
+13. Heavy iron halves the player's survival.
+14. The 0.04 follow-up miss chance applies to his return fire when wounded and to his re-cock after a miss.
+15. The player's `draw * 1.6` ms window starts when AGAIN appears, which is the moment his hit lands.
+16. Named outlaws have grit 0 and return_k 1; an unlisted miss chance is 0.12. Heavy iron keeps the 1.5x return fire delay.
+17. Mercer twins: $375 each, paid separately. One-shot bonus for Cass if exactly one round was fired before he fell, for Joss if exactly one round after. Joss gets a short wanted card ("The other Mercer"), his own HOLD phase and his own result card. The duel counter does not advance between them.
+18. Daily: outlaws keep their own bounties. The daily has its own log and does not go on the main ladder. Kills, headshots and reaction times count in stats.
+19. Tapping II or the back button during the standoff is never a false start; on resume the standoff restarts from ready.
+20. Kin may roll the caller quirk.
+21. 24 to 32 colours is the per-frame budget. Sky and rim ramps swap entries within it; accent colours come from the palette.
+22. No skull progress bar in the HUD.
+23. `project.godot` is marked 4.3 compatible; test with the newest stable. The owner plays in Godot 4.7.2 on Android.
