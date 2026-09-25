@@ -1,6 +1,7 @@
 # Blood at Sundown, working rules for Claude Code
 
-Read DESIGN.md first: it is the complete spec (mechanics, numbers, roster, look). Then look at
+Read DESIGN.md first: it is the complete spec (mechanics, numbers, roster, look); its section 14
+holds the owner's clarifications and wins over anything above it. Then look at
 every image in reference/. The images define the look and the cast, DESIGN.md defines everything else; where they
 disagree, DESIGN.md wins.
 
@@ -14,6 +15,10 @@ disagree, DESIGN.md wins.
 - Godot binary: set GODOT in the shell. On a fresh cloud machine fetch the headless-capable
   Linux build from the godotengine/godot GitHub release page for the version in project.godot,
   unzip it, chmod +x, and export GODOT=./Godot_v4.x-stable_linux.x86_64.
+
+Python tools need PIL and numpy (`pip install pillow numpy`). Regenerate assets with
+`cd tools && python3 gen_fonts.py && python3 gen_pixel_art.py`. reference/ carries a .gdignore
+so Godot never imports or exports the concept images.
 
 ## Before running anything
 The class-name cache lives in .godot/. After a fresh clone or after deleting .godot, run:
@@ -34,7 +39,8 @@ inside a milestone, never at its end.
 ## Looking at the game without a phone
     xvfb-run -a -s "-screen 0 1200x1200x24" $GODOT --path . --rendering-driver opengl3 \
       --resolution 390x844 -- --shot --when=ready --round=3 --out=/tmp/shot.png
-Save both the native 195 x 422 frame and the 2x frame. Look at the PNG before calling a visual
+This writes /tmp/shot.png (2x) and /tmp/shot_native.png (195 x 422). Add --screen=howto (or any
+menu card id) to capture a card. Look at the PNG before calling a visual
 task done, and compare it against the matching image in reference/. Install xvfb with apt if it
 is missing.
 

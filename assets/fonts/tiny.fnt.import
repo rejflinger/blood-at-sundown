@@ -1,0 +1,17 @@
+[remap]
+
+importer="font_data_bmfont"
+type="FontFile"
+uid="uid://cg1j4h2jeftsj"
+path="res://.godot/imported/tiny.fnt-74b0b3e15c79635c7f44a9d4b55cd317.fontdata"
+
+[deps]
+
+source_file="res://assets/fonts/tiny.fnt"
+dest_files=["res://.godot/imported/tiny.fnt-74b0b3e15c79635c7f44a9d4b55cd317.fontdata"]
+
+[params]
+
+fallbacks=[]
+compress=true
+scaling_mode=2
