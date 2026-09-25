@@ -149,9 +149,10 @@ func build_title() -> void:
 	tag.position = Vector2(COL_LEFT, 8 + logo.texture.get_height() + 3)
 	root.add_child(tag)
 
-	var x := 93
-	var w := 125
-	var y := 318
+	# Centred column as in the reference; it may overlap the player figure on the left.
+	var w := 116
+	var x := (NATIVE.x - w) / 2 + 1
+	var y := 322
 	title_buttons.clear()
 	for spec in [
 		["play", "PLAY", PixelButton.STYLE_RED, 38, "huge"],
@@ -166,7 +167,7 @@ func build_title() -> void:
 		b.pressed.connect(_emit.bind(spec[0]))
 		root.add_child(b)
 		title_buttons.append(b)
-		y += spec[3] + 7
+		y += spec[3] + 6
 		if spec[0] == "daily":
 			# centred under the button, as wide as the column allows on its right side
 			var sw := 2 * (COL_RIGHT - (x + w / 2))
@@ -175,7 +176,7 @@ func build_title() -> void:
 			status.position = Vector2(x + w / 2 - sw / 2, y - 5)
 			status.set_meta("slot_y", y - 5)  # room for two lines; one line sits centred
 			root.add_child(status)
-			y += 18
+			y += 16
 
 	# Icon row as in the reference: stats bottom left, sound and how to play bottom right.
 	for spec in [
@@ -185,7 +186,7 @@ func build_title() -> void:
 	]:
 		var b := PixelButton.new(spec[0], "", PixelButton.STYLE_WOOD, 1)
 		b.icon_rows = spec[2]
-		b.position = Vector2(spec[3], 530)
+		b.position = Vector2(spec[3], 526)
 		b.size = Vector2(32, 32)
 		b.pressed.connect(_emit.bind(spec[0]))
 		root.add_child(b)
@@ -193,7 +194,7 @@ func build_title() -> void:
 		var cw := int(font("body_ol").get_string_size(spec[1], HORIZONTAL_ALIGNMENT_LEFT, -1, font_size("body_ol")).x) + 2
 		var cap := label(spec[1], "body_ol", PixelArt.CREAM, 1, HORIZONTAL_ALIGNMENT_CENTER, cw)
 		cap.name = "Cap_" + spec[0]
-		cap.position = Vector2(clampi(spec[3] + 16 - cw / 2, COL_LEFT, COL_RIGHT - cw), 565)
+		cap.position = Vector2(clampi(spec[3] + 16 - cw / 2, COL_LEFT, COL_RIGHT - cw), 561)
 		root.add_child(cap)
 
 
