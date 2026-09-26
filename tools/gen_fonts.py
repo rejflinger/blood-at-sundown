@@ -16,6 +16,8 @@ Run: python3 tools/gen_fonts.py
 import os
 from PIL import Image
 
+import palette as P
+
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 OUT = os.path.join(ROOT, "assets", "fonts")
 
@@ -207,8 +209,8 @@ def outlined(rows):
     return out
 
 
-FILL = (243, 226, 189, 255)   # palette CREAM
-RING = (27, 16, 34, 255)      # palette INK
+FILL = P.rgb("CREAM") + (255,)
+RING = P.rgb("INK") + (255,)
 
 
 def build(name, glyphs, rows, base, space, spacing, bold=False, tall=0, outline=False):

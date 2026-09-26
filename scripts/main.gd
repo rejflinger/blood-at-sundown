@@ -330,7 +330,7 @@ func _test_palette() -> void:
 		if not consts.has(names[i]) or consts[names[i]] != i:
 			named_ok = false
 	check("palette names in pixel_art.gd match tools/palette.py", named_ok)
-	check("INK is the darkest outline colour", PixelArt.c(PixelArt.INK).to_html(false) == "1b1022")
+	check("INK is the darkest outline colour", PixelArt.c(PixelArt.INK).to_html(false) == "1f0e16")
 	check("sun_t gold at duel 1", is_equal_approx(PixelArt.sun_t_for_duel(1), 0.0))
 	check("sun_t 3/7 at duel 4", is_equal_approx(PixelArt.sun_t_for_duel(4), 3.0 / 7.0))
 	check("sun_t deep red from duel 8", PixelArt.sun_t_for_duel(8) == 1.0 and PixelArt.sun_t_for_duel(40) == 1.0)
@@ -482,7 +482,7 @@ func _test_title() -> void:
 	check("tagline", tag.text == "TEN OUTLAWS. ONE THUMB.")
 	var status: Control = ui.screens["title"].get_node("DailyStatus")
 	check("daily status line under DAILY DUEL", status.text != "" and status.position.y > ui.title_buttons[2].position.y
-		and status.position.y + status.get_line_count() * GameUI.font_size("tiny_ol") <= ui.title_buttons[3].position.y)
+		and status.position.y + status.get_line_count() * status.get_theme_font_size("font_size") <= ui.title_buttons[3].position.y + 1)
 	var labels_inside := true
 	for n in ui.screens["title"].get_children():
 		if n is Label and (n.position.x < GameUI.COL_LEFT - 1 or n.position.x + n.size.x > GameUI.COL_RIGHT + 1):
@@ -580,7 +580,13 @@ func _dailytest() -> void:
 	ui.set_daily_status(daily_status_text())
 	await get_tree().process_frame
 	var line: Label = ui.screens["title"].get_node("DailyStatus")
-	var bottom := line.position.y + line.get_line_count() * GameUI.font_size("tiny_ol")
+	var bottom := line.position.y + line.get_line_count() * line.get_theme_font_size("font_size")
+	check("locked line stays on one line", line.get_line_count() == 1, str(line.get_line_count()))
+	pb["daily"] = {"date": daily_seed(Time.get_date_dict_from_system()), "wins": 12, "bounty": 12345}
+	ui.set_daily_status(daily_status_text())
+	await get_tree().process_frame
+	check("long locked line still fits on one line", line.get_line_count() == 1, daily_status_text())
+	pb["daily"] = {"date": daily_seed(Time.get_date_dict_from_system()), "wins": 3, "bounty": 450}
 	check("locked line fits between DAILY DUEL and HIGH SCORES",
 		line.position.y >= ui.title_buttons[2].position.y + ui.title_buttons[2].size.y - 4
 		and bottom <= ui.title_buttons[3].position.y + 1, "%s %s" % [line.position.y, bottom])

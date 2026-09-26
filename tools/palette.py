@@ -13,7 +13,7 @@ def hx(s):
 # Order matters: pixel_art.gd names these indices.
 FIXED = [
     # ink and shadow
-    ("INK",         "1b1022"), ("CHARCOAL",   "2d2030"), ("SHADOW",     "3b2a3e"),
+    ("INK",         "1f0e16"), ("CHARCOAL",   "2d2030"), ("SHADOW",     "3b2a3e"),
     ("PLUM",        "4a2843"), ("PLUM_LIGHT", "6e3a55"), ("MAUVE",      "8f5068"),
     # blood and reds
     ("WINE_DARK",   "3e0c14"), ("WINE",       "5e121c"), ("MAROON",     "7c1a24"),

@@ -32,10 +32,10 @@ var sound_on := true
 # --- strings and fonts -------------------------------------------------------------------
 
 static func txt(s: String) -> String:
+	strings_seen[s] = true  # recorded as given, so the autotest sees any dash
 	if s.contains(char(0x2014)) or s.contains(char(0x2013)):
 		push_error("UI text contains a dash that is not allowed: " + s)
 		s = s.replace(char(0x2014), "-").replace(char(0x2013), "-")
-	strings_seen[s] = true
 	return s
 
 
@@ -153,7 +153,7 @@ func build_title() -> void:
 	# Centred column as in the reference; it may overlap the player figure on the left.
 	var w := 116
 	var x := (NATIVE.x - w) / 2 + 1
-	var y := 322
+	var y := 318
 	title_buttons.clear()
 	for spec in [
 		["play", "PLAY", PixelButton.STYLE_RED, 38, "huge"],
@@ -174,20 +174,20 @@ func build_title() -> void:
 			var sw := 2 * (COL_RIGHT - (x + w / 2))
 			var status := label("", "body_ol", PixelArt.CREAM, 1, HORIZONTAL_ALIGNMENT_CENTER, sw)
 			status.name = "DailyStatus"
-			status.position = Vector2(x + w / 2 - sw / 2, y - 5)
-			status.set_meta("slot_y", y - 5)  # room for two lines; one line sits centred
+			status.position = Vector2(x + w / 2 - sw / 2, y - 4)
+			status.set_meta("slot_y", y - 4)
 			root.add_child(status)
-			y += 16
+			y += 12
 
-	# Icon row as in the reference: stats bottom left, sound and how to play bottom right.
+	# Icon row: three icons with centres 87 px apart (48, 135, 222), SOUND under the column.
 	for spec in [
-		["stats", "STATS", PixelButton.ICON_STATS, COL_LEFT],
-		["sound", "SOUND", PixelButton.ICON_SOUND_ON, 132],
-		["howto", "HOW TO PLAY", PixelButton.ICON_HOWTO, COL_RIGHT - 32],
+		["stats", "STATS", PixelButton.ICON_STATS, 32],
+		["sound", "SOUND", PixelButton.ICON_SOUND_ON, 119],
+		["howto", "HOW TO PLAY", PixelButton.ICON_HOWTO, 206],
 	]:
 		var b := PixelButton.new(spec[0], "", PixelButton.STYLE_WOOD, 1)
 		b.icon_rows = spec[2]
-		b.position = Vector2(spec[3], 526)
+		b.position = Vector2(spec[3], 528)
 		b.size = Vector2(32, 32)
 		b.pressed.connect(_emit.bind(spec[0]))
 		root.add_child(b)
@@ -195,15 +195,20 @@ func build_title() -> void:
 		var cw := int(font("body_ol").get_string_size(spec[1], HORIZONTAL_ALIGNMENT_LEFT, -1, font_size("body_ol")).x) + 2
 		var cap := label(spec[1], "body_ol", PixelArt.CREAM, 1, HORIZONTAL_ALIGNMENT_CENTER, cw)
 		cap.name = "Cap_" + spec[0]
-		cap.position = Vector2(clampi(spec[3] + 16 - cw / 2, COL_LEFT, COL_RIGHT - cw), 561)
+		cap.position = Vector2(clampi(spec[3] + 16 - cw / 2, COL_LEFT, COL_RIGHT - cw), 563)
 		root.add_child(cap)
 
 
+## The status line has a one-line slot; text too long for the body face drops to the tiny face.
 func set_daily_status(text: String) -> void:
 	var l: Label = screens["title"].get_node("DailyStatus")
 	l.text = txt(text)
-	var lines := maxi(1, l.get_line_count())
-	l.position.y = l.get_meta("slot_y") + (5 if lines == 1 else 0)
+	var face := "body_ol"
+	if font(face).get_string_size(text, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size(face)).x > l.size.x - 2:
+		face = "tiny_ol"
+	l.add_theme_font_override("font", font(face))
+	l.add_theme_font_size_override("font_size", font_size(face))
+	l.position.y = l.get_meta("slot_y") + (1 if face == "tiny_ol" else 0)
 
 
 func set_sound(on: bool) -> void:

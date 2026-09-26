@@ -10,6 +10,12 @@ Everything is drawn with aliased primitives at native resolution and uses only p
 colours. Run: python3 tools/gen_pixel_art.py
 """
 import os
+import sys
+
+# Set iteration order must not change the art: re-run with a fixed hash seed.
+if os.environ.get("PYTHONHASHSEED") != "0":
+    os.environ["PYTHONHASHSEED"] = "0"
+    os.execv(sys.executable, [sys.executable] + sys.argv)
 import random
 
 import numpy as np

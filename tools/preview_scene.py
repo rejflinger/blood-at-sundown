@@ -11,6 +11,10 @@ import argparse
 import os
 import sys
 
+if os.environ.get("PYTHONHASHSEED") != "0":
+    os.environ["PYTHONHASHSEED"] = "0"
+    os.execv(sys.executable, [sys.executable] + sys.argv)
+
 from PIL import Image, ImageDraw
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -22,9 +26,9 @@ import palette as P  # noqa: E402
 from scene.common import OX, OY, SAFE_W, SAFE_H  # noqa: E402
 
 # Title layout from scripts/ui.gd (native pixels): (x, y, w, h, red?)
-BUTTONS = [(78, 322, 116, 38, True), (78, 366, 116, 30, False), (78, 402, 116, 30, False),
-           (78, 454, 116, 30, False), (78, 490, 116, 30, False),
-           (16, 526, 32, 32, False), (132, 526, 32, 32, False), (222, 526, 32, 32, False)]
+BUTTONS = [(78, 318, 116, 38, True), (78, 362, 116, 30, False), (78, 398, 116, 30, False),
+           (78, 446, 116, 30, False), (78, 482, 116, 30, False),
+           (32, 528, 32, 32, False), (119, 528, 32, 32, False), (206, 528, 32, 32, False)]
 
 
 def c(name):
