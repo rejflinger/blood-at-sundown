@@ -11,22 +11,23 @@ Props get a 1 px INK outline; the sagebrush, rope, crow legs and cast shadows do
 (selective outline, see FgLayer).
 """
 import math
+import os
+import re
 
 import numpy as np
 from PIL import Image, ImageDraw
 
-import palette as P  # noqa: F401
+import gen_fonts
 from scene.common import *  # noqa: F401,F403
 
 
 class FgLayer(Layer):
-    """A Layer whose outline() skips the pixels marked as bare (sagebrush blades, rope, legs
-    and cast shadows get no INK ring) and never paints over pixels marked no_ink."""
+    """A Layer whose outline() skips the pixels marked as bare: sagebrush blades, rope, legs
+    and cast shadows get no INK ring."""
 
     def __init__(self):
         super().__init__()
         self.bare_src = np.zeros((H, W), dtype=bool)   # pixels that cast no outline
-        self.no_ink = np.zeros((H, W), dtype=bool)     # pixels that never receive outline
 
     def mark(self, grid, x, y):
         X, Y = int(x) + OX, int(y) + OY
@@ -43,15 +44,59 @@ class FgLayer(Layer):
         for dy, dx in shifts:
             o |= np.roll(np.roll(src, dy, 0), dx, 1)
         o &= ~a
-        o &= ~self.no_ink
         ys, xs = np.nonzero(o)
         for y, x in zip(ys, xs):
             self.im.putpixel((int(x), int(y)), col(c))
 
 
-# icon boxes of the title UI and the captions under them: no bright pixels here
-QUIET = [(16, 526, 48, 569), (132, 526, 164, 569), (222, 526, 254, 569),
-         (14, 559, 50, 571), (130, 559, 166, 571), (205, 559, 256, 571)]
+# Title icon row. scripts/ui.gd is the source of truth: the icon specs, their y and size, the
+# caption clamp and COL_LEFT / COL_RIGHT are read from it, and each caption's width is the sum
+# of the body_ol advances in gen_fonts.py plus 2 (what ui.gd asks get_string_size for), so the
+# boxes follow any change to the layout or the caption text. If ui.gd stops parsing, the copy
+# below is used and a warning is printed. Today: 32 x 32 icons at x 32, 119, 206, y 528;
+# captions on y 563, their ink (cream glyphs in a 1 px INK ring) on rows 562..570 at x 32..62,
+# 119..149 and 190..252 (HOW TO PLAY is clamped to the column's right edge, left of its icon).
+ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+_ICON_ROW_COPY = ((32, 119, 206), 528, 32, 562, ((32, 62), (119, 149), (190, 252)))
+
+
+def _icon_row():
+    """(icon xs, icon y, icon size, caption ink top row, caption ink x ranges) from ui.gd."""
+    try:
+        with open(os.path.join(ROOT, "scripts", "ui.gd")) as f:
+            src = f.read()
+        num = lambda pat: int(re.search(pat, src).group(1))  # noqa: E731
+        col_l = num(r"const COL_LEFT := (\d+)")
+        col_r = num(r"const COL_RIGHT := (\d+)")
+        specs = re.findall(r'\["\w+", "([^"]+)", PixelButton\.ICON_\w+, (\d+)\]', src)
+        icon_y = num(r"b\.position = Vector2\(spec\[3\], (\d+)\)")
+        icon_w = num(r"b\.size = Vector2\((\d+), \d+\)")
+        pad = num(r'var cw := int\(font\("body_ol"\)\.get_string_size\(spec\[1\][^\n]*\.x\) \+ (\d+)')
+        m = re.search(r"cap\.position = Vector2\(clampi\(spec\[3\] \+ (\d+) - cw / 2, "
+                      r"COL_LEFT, COL_RIGHT - cw\), (\d+)\)", src)
+        half, cap_y = int(m.group(1)), int(m.group(2))
+        if len(specs) != 3:
+            raise ValueError("%d icon specs" % len(specs))
+        xs, caps = [], []
+        for text, x in specs:
+            x = int(x)
+            cw = pad + sum(gen_fonts.BODY_SPACE if ch == " " else len(gen_fonts.BODY[ch][0]) + 1
+                           for ch in text)
+            left = min(max(x + half - cw // 2, col_l), col_r - cw)
+            xs.append(x)
+            caps.append((left, left + cw - 2))       # the ring's left column to its right one
+        return tuple(xs), icon_y, icon_w, cap_y - 1, tuple(caps)
+    except (OSError, AttributeError, KeyError, ValueError) as e:
+        print("foreground.py: could not read the title icon row from scripts/ui.gd (%s); "
+              "using the copy in foreground.py" % e)
+        return _ICON_ROW_COPY
+
+
+ICON_X, ICON_Y, ICON_W, CAPTION_Y, CAPTION_X = _icon_row()   # CAPTION_Y: the ink's top row
+# nothing bright is drawn inside these boxes: the icons and caption ink plus a 2 px margin
+# (3 px under the caption, room for the ring of a descender)
+QUIET = ([(x - 2, ICON_Y - 2, x + ICON_W + 1, ICON_Y + ICON_W + 1) for x in ICON_X]
+         + [(a - 2, CAPTION_Y - 2, b + 2, CAPTION_Y + 11) for a, b in CAPTION_X])
 BRIGHT = ("AMBER", "OCHRE", "RUST", "TAN", "SAND", "LEATHER", "RIM", "BROWN_MID", "CREAM")
 
 
@@ -209,14 +254,14 @@ def cow_skull(L):
                184: [(246, 250), (255, 258)], 185: [(246, 249), (256, 258)],
                186: [(247, 249)]}
     hole = {(x, y) for y, runs in sockets.items() for a, b in runs for x in range(a, b + 1)}
-    for (x, y) in hole:
+    for (x, y) in sorted(hole):                  # sorted: a shared neighbour takes the last write
         for dx in (-1, 0, 1):
             for dy in (-1, 0, 1, 2):
                 q = (x + dx, y + dy)
                 if q in m and q not in hole:
                     m[q] = "BROWN_MID" if (dy > 0 or dx > 0) and x > 252 else (
                         "SKIN_DARK" if dy > 0 else "OCHRE")
-    for (x, y) in hole:
+    for (x, y) in sorted(hole):
         m[(x, y)] = "INK"
     m[(247, 181)] = "BROWN_BLACK"
     m[(248, 181)] = "BROWN_BLACK"
@@ -308,7 +353,7 @@ def crow(L):
         if p in body:
             m[p] = "CHARCOAL"
     # the back above the wing stays INK, as does the contour
-    for (x, y) in body:
+    for (x, y) in sorted(body):
         if (x + 1, y) not in body or (x, y - 1) not in body:
             m[(x, y)] = "INK"
     # three rows of feather edges on the wing
@@ -323,7 +368,7 @@ def crow(L):
             if m.get((x, y)) == "CHARCOAL":
                 m[(x, y)] = "GREY_DARK"
     # belly mid-tone
-    for (x, y) in body:
+    for (x, y) in sorted(body):
         if 111 <= y <= 120 and 245 <= x <= 251 and m[(x, y)] == "INK":
             if (x - 1, y) in body and (x, y + 1) in body and (x - 1, y + 1) in body:
                 m[(x, y)] = "CHARCOAL"
@@ -355,7 +400,7 @@ def crow(L):
     for p in legs:
         m[p] = "CHARCOAL"
     # 1 px RIM only on the throat and the breast, the contour turned to the sun
-    rim = [(x, y) for (x, y) in body if (x - 1, y) not in m and 100 <= y <= 114]
+    rim = [(x, y) for (x, y) in sorted(body) if (x - 1, y) not in m and 100 <= y <= 114]
     for (x, y) in rim:
         m[(x, y)] = "RIM" if y <= 109 else "OCHRE"
     for (x, y), c in m.items():
@@ -368,16 +413,26 @@ def crow(L):
 # --------------------------------------------------------------------------------------------
 # barrel beside the hitching rail
 
+# The barrel stands in front of the rail post (horses.py, x 243..250, lit edge x 244): it covers
+# the post's right 2 px at the lids and 4 px at the belly, so on every row one outline clearly
+# passes in front of the other, and the post keeps a 3..5 px lit sliver (RIM, OCHRE, face) whose
+# straight edge never runs parallel to the barrel's curved rim. As in the concept, the barrel's
+# shaded right side runs off the right edge of the screen.
+BARREL_X = 248                                   # lit left rim at the belly
+
+
 def _barrel_span(r):
     """Left and right x of the barrel body on row r: 20 px at the ends, 24 at the belly."""
     t = (r - 380) / 36.0
     b = math.sin(math.pi * min(1.0, max(0.0, t)))
     w = 24 if b >= 0.72 else (22 if b >= 0.3 else 20)
-    return 257 - w // 2, 256 + w // 2
+    return BARREL_X + 12 - w // 2, BARREL_X + 11 + w // 2
 
 
 def barrel(L):
-    """Dark oak barrel standing beside the rail, x 245..268, y 376..416, bulging at the belly."""
+    """Dark oak barrel standing beside the rail, x BARREL_X .. BARREL_X + 23, y 376..416,
+    bulging at the belly."""
+    d = BARREL_X - 245                           # the offsets below were drawn at x 245
     top, bot = 380, 416
     for r in range(top, bot + 1):
         a, b = _barrel_span(r)
@@ -404,10 +459,11 @@ def barrel(L):
     # grain on the staves, short runs
     for x, ya, yb in ((253, 386, 390), (257, 399, 403), (261, 386, 389), (253, 401, 405),
                       (249, 399, 402), (264, 390, 393), (260, 402, 405)):
+        x += d
         for y in range(ya, yb + 1):
             a, b = _barrel_span(y)
             if a + 2 < x < b - 2 and not L.is_(x, y, "BROWN_BLACK"):
-                L.px(x, y, "BROWN" if x < 258 else "BROWN_DARK")
+                L.px(x, y, "BROWN" if x < 258 + d else "BROWN_DARK")
     # hoops: dark iron, a warm glint along the top edge on the lit left third
     for hy in (383, 396, 410):
         a, b = _barrel_span(hy)
@@ -420,42 +476,46 @@ def barrel(L):
         L.px(a + 2, hy, "RIM")
         L.px(a + 3, hy, "RIM")
         L.px(a, hy + 1, "OCHRE")
-    # contact shadow, falling toward the camera
-    for y, xa, xb in ((417, 247, 269), (418, 251, 269)):
+    # contact shadow, falling toward the camera; it takes in the rail post's foot too, so the
+    # two stand in one dark pool instead of on the horse shadow's dither
+    for y, xa, xb in ((413, 242, BARREL_X), (414, 242, BARREL_X), (415, 243, BARREL_X),
+                      (416, 244, BARREL_X),
+                      (417, 245, 269 + d), (418, 248, 269 + d), (419, 253, 262)):
         for x in range(xa, xb + 1):
-            L.px(x, y, "BROWN_BLACK")
-            L.mark(L.bare_src, x, y)
+            if not L.get(x, y)[3]:
+                L.px(x, y, "BROWN_BLACK")
+                L.mark(L.bare_src, x, y)
     # lid: an ellipse seen from a little above, its far rim lit
-    L.ellipse(247, 376, 266, 381, "BROWN_DARK")
-    for x in range(247, 267):
+    L.ellipse(247 + d, 376, 266 + d, 381, "BROWN_DARK")
+    for x in range(247 + d, 267 + d):
         topy = None
         for y in range(376, 382):
             if L.is_(x, y, "BROWN_DARK"):
                 topy = y
                 break
         if topy is not None:
-            L.px(x, topy, "RIM" if x < 253 else ("OCHRE" if x < 262 else "LEATHER"))
-    L.hline(250, 263, 378, "BROWN")                 # lid boards
-    L.px(256, 377, "BROWN_BLACK")
-    L.px(256, 378, "BROWN_BLACK")
-    L.px(256, 379, "BROWN_BLACK")
-    L.hline(248, 265, 380, "BROWN_MID")             # near chime, lit left
-    L.hline(248, 250, 380, "OCHRE")
-    L.px(247, 380, "RIM")
-    L.px(247, 379, "RIM")
-    L.hline(262, 265, 380, "BROWN")
+            L.px(x, topy, "RIM" if x < 253 + d else ("OCHRE" if x < 262 + d else "LEATHER"))
+    L.hline(250 + d, 263 + d, 378, "BROWN")         # lid boards
+    L.vline(256 + d, 377, 379, "BROWN_BLACK")
+    L.hline(248 + d, 265 + d, 380, "BROWN_MID")     # near chime, lit left
+    L.hline(248 + d, 250 + d, 380, "OCHRE")
+    L.vline(247 + d, 379, 380, "RIM")
+    L.hline(262 + d, 265 + d, 380, "BROWN")
 
 
 # --------------------------------------------------------------------------------------------
 # crate and fence block in the lower right
 
-BOARDS = [7, 5, 8, 6, 7, 5, 8, 6, 7, 6, 8, 5]
+# Board widths from the crate's front corner (x 227) rightward. The seams fall at 227, 232, 242,
+# 248, 256, 261 and 268, so none runs within 4 px of the HOW TO PLAY icon's frame (x 206..237):
+# the wide second board sits under the icon's right half.
+BOARDS = [5, 10, 6, 8, 5, 7, 6, 8, 5, 7, 6, 8]
 
 
 def crate(L):
     """Dark crate and fence block closing the lower right corner, x 220..300 from y 445:
     a squat knob, a thick cap beam lit along its top and overhanging on the left, and a dark
-    board body."""
+    board body. The HOW TO PLAY icon (x 206..237) straddles its front corner (x 223..227)."""
     x0, x1 = 224, 300
     # squat knob on the cap: a sawn-off post stub, rounded, lit along its top
     kx0, kx1, ky0 = 241, 250, 445
@@ -593,26 +653,71 @@ def crate(L):
     # nails near the top of each board
     for bx, bw in edges:
         L.px(bx + bw // 2, top + 3, "GREY_DARK")
-    # a fence post in front of the lower left corner of the crate
-    fx0, fx1, fy0 = 211, 221, 543
-    L.rect(fx0, fy0, fx1, 600, "BROWN_DARK")
-    L.hline(fx0 + 1, fx1 - 1, fy0, "RIM")
-    L.hline(fx0 + 1, fx1 - 2, fy0 + 1, "OCHRE")
-    L.px(fx1 - 1, fy0 + 1, "BROWN_MID")
-    L.vline(fx0, fy0 + 1, fy0 + 2, "RIM")
-    L.vline(fx0, fy0 + 3, 557, "OCHRE")
-    L.vline(fx0, 558, 600, "BROWN")
-    L.vline(fx0 + 1, fy0 + 2, 600, "BROWN")
-    L.vline(fx1, fy0 + 1, 600, "BROWN_BLACK")
-    for gx, gy, ln in ((fx0 + 3, fy0 + 5, 9), (fx0 + 6, fy0 + 12, 12), (fx0 + 4, fy0 + 24, 8),
-                       (fx0 + 7, fy0 + 30, 7), (fx0 + 5, fy0 + 2, 4)):
-        L.vline(gx, gy, gy + ln, "BROWN_BLACK")
-    L.px(fx0 + 3, fy0 + 3, "GREY_DARK")
     # the icon and caption over the lower crate: keep it dark there
-    for yy in range(526, 572):
-        for xx in range(fx0, 271):
+    for yy in range(ICON_Y - 2, CAPTION_Y + 12):
+        for xx in range(x0 - 4, 271):
             if quiet(xx, yy) and (L.is_(xx, yy, "BROWN") or L.is_(xx, yy, "OCHRE")):
                 L.px(xx, yy, "BROWN_DARK")
+
+
+def low_block(L):
+    """A lower fence block in front of the crate's foot, x 192..225 from y 543, as in the
+    concept: the HOW TO PLAY icon's left frame (x 206) straddles it, so its lit top and end
+    show left of the icon and its dark boards run on under the caption. The crate, drawn
+    after it, hides its right end. No edge or seam falls within 4 px of the icon frame's
+    lines, and the lit edges are worn into runs so they do not echo the icon's clean frame."""
+    x0, x1, y0 = 192, 225, 543
+    L.rect(x0, y0, x1, 600, "BROWN_DARK")
+    # lit top, worn: RIM with dull nicks, AMBER and OCHRE runs under it, then shade
+    L.hline(x0 + 1, x1, y0, "RIM")
+    for nx, nw in ((197, 2), (203, 3), (215, 2)):
+        L.hline(nx, nx + nw - 1, y0, "OCHRE" if nw == 2 else "BROWN_MID")
+    x = x0 + 1
+    while x <= x1:
+        ln = 3 + int(hsh(x, 91) * 6)
+        c = "AMBER" if hsh(x, 92) < 0.55 else ("OCHRE" if hsh(x, 92) < 0.85 else "BROWN_MID")
+        L.hline(x, min(x1, x + ln - 1), y0 + 1, c)
+        x += ln
+    x = x0 + 2
+    while x <= x1:
+        ln = 3 + int(hsh(x, 93) * 7)
+        c = ("OCHRE", "BROWN_MID", "BROWN", "BROWN")[int(hsh(x, 94) * 4)]
+        if c == "OCHRE":
+            ln = min(ln, 3)
+        L.hline(x, min(x1, x + ln - 1), y0 + 2, c)
+        x += ln
+    L.hline(x0 + 3, x1, y0 + 3, "BROWN_BLACK")                # shade under the top board
+    # end grain turned to the street: a short RIM at the corner, OCHRE fading into LEATHER
+    L.vline(x0, y0 + 1, y0 + 4, "RIM")
+    L.vline(x0, y0 + 5, y0 + 11, "OCHRE")
+    y = y0 + 12
+    while y <= 600:                                            # then only dull runs
+        ln = 4 + int(hsh(y, 97) * 9)
+        L.vline(x0, y, min(600, y + ln), "LEATHER" if hsh(y, 98) < 0.5 else "BROWN_MID")
+        y += ln + 1
+    L.vline(x0 + 1, y0 + 1, y0 + 7, "OCHRE")
+    L.vline(x0 + 1, y0 + 8, 600, "BROWN_MID")
+    L.px(x0 + 1, y0 + 4, "LEATHER")                            # a growth ring
+    L.vline(x0 + 2, y0 + 3, 600, "BROWN_BLACK")                # the corner, in shade
+    # boards below the top, seams clear of the icon frame (x 206) and of the crate
+    for sx in (212, 219):
+        L.vline(sx, y0 + 4, 600, "BROWN_BLACK")
+    for sx in (x0 + 2, 212, 219):
+        y = y0 + 5
+        while y <= 600:                                        # lit left edge in worn runs
+            ln = 5 + int(hsh(sx, y, 95) * 12)
+            if hsh(sx, y, 96) < 0.6:
+                L.vline(sx + 1, y, min(600, y + ln), "BROWN")
+            y += ln + 2
+    for gx, gy, ln in ((199, 551, 5), (201, 558, 7), (209, 574, 7), (216, 566, 5), (197, 571, 8)):
+        L.vline(gx, gy, gy + ln, "BROWN_BLACK")               # grain
+    for p in ((199, 547), (215, 547)):
+        L.px(p[0], p[1], "GREY_DARK")                          # nails
+    # under the caption keep it dark
+    for y in range(CAPTION_Y - 2, 585):
+        for x in range(x0, x1 + 1):
+            if quiet(x, y) and any(L.is_(x, y, c) for c in BRIGHT):
+                L.px(x, y, "BROWN_DARK")
 
 
 # --------------------------------------------------------------------------------------------
@@ -721,6 +826,7 @@ def draw_foreground(rng):
     cow_skull(fg)
     crow(fg)
     barrel(fg)
+    low_block(fg)
     crate(fg)
     fg.outline("INK")
     return fg

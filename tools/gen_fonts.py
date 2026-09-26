@@ -3,9 +3,9 @@
 Three faces, all hand-authored here as '#' bitmaps:
   tiny  5 px caps, mixed case, 8 px line  (HUD rows, sub lines, captions)
   body  7 px caps, mixed case, 10 px line (card text, prompts)
-  bold  body thickened one pixel sideways (buttons, DRAW at 2x and up)
-  tall  bold stretched to 9 px caps (buttons)
-  huge  bold stretched to 13 px caps (PLAY, card titles, DRAW)
+  bold  body thickened one pixel sideways, M, W and the dots drawn bold by hand (BOLD)
+  tall  bold stretched to 9 px caps (buttons), dots redrawn 2 x 2 (STRETCHED)
+  huge  bold stretched to 13 px caps (PLAY, card titles, DRAW), dots redrawn 2 x 2
   tiny_ol, body_ol, bold_ol  cream glyphs with a baked ink ring, for text straight over the scene
 
 Glyph pixels are white; the game tints them with palette colours. Godot imports .fnt
@@ -161,6 +161,42 @@ BODY = {
 }
 BODY_SPACE = 4
 
+# Bold glyphs drawn by hand instead of thickened: embolden() fills the diagonals of M and W
+# (they turn into H-shaped slabs) and turns every one-pixel dot into a 2 x 1 dash. These keep
+# 2 px stems with a notch in the middle, and 2 x 2 dots. Same 7 cap rows as BODY.
+BOLD = {
+    "M": g("##...## ###.### ####### ##.#.## ##...## ##...## ##...##"),
+    "W": g("##...## ##...## ##...## ##.#.## ####### ###.### ##...##"),
+    ".": g(".. .. .. .. .. ## ##"),
+    ",": g(".. .. .. .. .. ## ## .#"),
+    ":": g(".. ## ## .. .. ## ##"),
+    ";": g(".. ## ## .. .. ## ## .#"),
+    "!": g("## ## ## ## .. ## ##"),
+    "?": g(".####. ##..## ...##. ..##.. ...... ..##.. ..##.."),
+    "·": g(".. .. .. ## ## .. .."),
+}
+
+# Stretching repeats cap rows, so a 2 x 2 dot would grow into a 2 x 3 or 2 x 4 bar. These
+# glyphs are drawn by hand at the stretched cap heights instead, every dot 2 x 2 (the '!' and
+# '?' dots keep a two-row gap above them). Rows as for the stretched face: cap rows, then the
+# descender rows.
+STRETCHED = {
+    9: {
+        ":": g(".. .. ## ## .. .. .. ## ##"),
+        ";": g(".. .. ## ## .. .. .. ## ## .#"),
+        "·": g(".. .. .. .. ## ## .. .. .."),
+    },
+    13: {
+        ".": g(".. .. .. .. .. .. .. .. .. .. .. ## ##"),
+        ",": g(".. .. .. .. .. .. .. .. .. .. .. ## ## .#"),
+        ":": g(".. .. .. .. ## ## .. .. .. .. .. ## ##"),
+        ";": g(".. .. .. .. ## ## .. .. .. .. .. ## ## .#"),
+        "!": g("## ## ## ## ## ## ## ## ## .. .. ## ##"),
+        "?": g(".####. .####. ##..## ##..## ...##. ...##. ..##.. ..##.. ..##.. ...... ...... ..##.. ..##.."),
+        "·": g(".. .. .. .. .. .. ## ## .. .. .. .. .."),
+    },
+}
+
 
 def pad(rows, total):
     w = max(len(r) for r in rows)
@@ -218,9 +254,11 @@ def build(name, glyphs, rows, base, space, spacing, bold=False, tall=0, outline=
     for ch, bm in glyphs.items():
         bm = pad(bm, rows)
         if bold:
-            bm = embolden(bm)
+            bm = pad(BOLD[ch], rows) if ch in BOLD else embolden(bm)
         if tall:
             bm = stretch_tall(bm, base, tall)
+            if ch in STRETCHED[tall]:
+                bm = pad(STRETCHED[tall][ch], len(bm))
         if outline:
             bm = outlined(bm)
         cells[ch] = bm

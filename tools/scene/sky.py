@@ -37,7 +37,9 @@ CLOUD_ZONES = [
     (138, 192, 42, ("SKY_MID", "RED", "SKY_LOW", "RED_LIGHT"), 0.35, 0.25, (30, 70), (7, 12)),
     (192, 222, 30, ("SKY_MID", "RED", "SKY_LOW", "RED_LIGHT"), 0.6, 0.3, (20, 48), (4, 7)),
 ]
-CLEAR = (138, 190, 172, 200)          # x0, y0, x1, y1 just above the sun: no cloud mass here
+CLEAR = (128, 190, 186, 222)          # x0, y0, x1, y1 above and beside the disc down to its
+                                      # centre row: no mass here, so the glow rings a clean
+                                      # upper disc (rows 195..227, its upper 60 percent)
 HALO = 19                             # outer radius of the glow past the disc edge
 NEAR_SUN = 14                         # clouds this close to the disc edge are lit HORIZON
 RUN_CAP = (28, 36)                    # longest solid run in a cloud row before a gap
@@ -399,7 +401,7 @@ def _tidy(G):
         for Y, X in zip(ys, xs):
             if 0 < X < W - 1 and 0 < Y < H - 1:
                 ns = [g[Y, X - 1], g[Y, X + 1], g[Y - 1, X], g[Y + 1, X]]
-                best = max(set(ns), key=ns.count)
+                best = max(sorted(set(ns)), key=ns.count)
                 g[Y, X] = best
 
 
@@ -458,48 +460,82 @@ def _noise1(rng, n, period, amp):
     return out
 
 
-def _strip(G, rng, x0, x1, y_mid, thick, lit_top=True, under=True):
-    """One lumpy crimson mass across the disc: a RED body thick rows tall in the middle that
-    tapers to 1 px at both ends and breaks into dashes, a top built of rounded puffs, a flatter
-    belly with broken MAROON runs under it, and a lit top edge (over the disc the disc row just
-    above it turns HORIZON; on the glow the top row itself does)."""
+def _strip(G, rng, x0, x1, y0, y1, thick, peak=0.3, belly=True, tips=(True, True), cut_x=None):
+    """One lumpy crimson mass across the lower disc. The RED body is thickest (thick rows) at
+    `peak` along its length and thins to a single row toward both ends, where it breaks into
+    drifting dashes; its centre line steps from y0 to y1, so it slants instead of lying flat.
+    The top carries a few low rounded puffs where it is thick, a thin part may be cut once or
+    twice (only between cut_x, when given) so the disc shows through, the belly is broken BLOOD
+    under the thick part, the puff tops are RED_LIGHT in runs of 3+ and the top edge is lit
+    (over the disc the disc row just above turns HORIZON; on the glow the top row itself does)."""
     sx, sy, r = SUN
     n = x1 - x0 + 1
+    pk = peak * (n - 1)
     puffs = []
-    px = x0 + rng.randint(3, 9)
-    while px < x1 - 3:
-        w, h = rng.uniform(6, 13), rng.uniform(0.8, 2.6)
+    px = x0 + rng.randint(2, 6)
+    while px < x1 - 4:
+        w, h = rng.uniform(5, 11), rng.uniform(1.0, 2.6)
         puffs.append((px, w, h))
-        px += int(w * rng.uniform(0.8, 1.4))
-    belly = _noise1(rng, n + 2, rng.randint(9, 14), 0.7)
-    under_n = _noise1(rng, n + 2, 4, 1.0)
+        px += int(w * rng.uniform(0.8, 1.3))
+    belly_n = _noise1(rng, n + 2, rng.randint(9, 14), 0.55)
+    under_n = _noise1(rng, n + 2, 5, 1.0)
     lit_n = _noise1(rng, n + 2, 5, 1.0)
+    rows = []
     for i in range(n):
         x = x0 + i
-        u = abs(2.0 * i / (n - 1) - 1.0)
-        t = thick * (1.0 - u ** 2.4) ** 0.5
-        puff = max([h * max(0.0, 1.0 - ((x - p0) / (w / 2.0)) ** 2) for p0, w, h in puffs] + [0.0])
-        top = int(math.floor(y_mid - t * 0.5 - puff * (1.0 - u) + 0.5))
-        bot = int(math.floor(y_mid + t * 0.5 + belly[i] + 0.5))
-        if bot < top:
-            bot = top
-        if u > 0.82 and bot > top + 1:                # thin tails
-            bot = top + 1
-        covered = G.cloud[top - 1 + OY, x + OX]
+        f = i / pk if i <= pk else (n - 1 - i) / (n - 1 - pk)     # 0 at the tips, 1 at the peak
+        t = max(1.0, thick * f ** 0.6)
+        yc = y0 + (y1 - y0) * i / (n - 1)
+        puff = max([h * max(0.0, 1.0 - ((x - p0) / (w / 2.0)) ** 2) ** 0.5 for p0, w, h in puffs] + [0.0])
+        top = int(math.floor(yc - t * 0.5 - puff * min(1.0, max(0.0, f * 2.5 - 1.5)) + 0.5))
+        bot = int(math.floor(yc + t * 0.5 + belly_n[i] * min(1.0, f) + 0.5)) - 1
+        rows.append([x, top, max(top, bot)])
+    # cut the thin stretch once or twice (2..3 px) so the disc shows through the mass; cut_x
+    # keeps the cuts to a span of the disc that is seen between the mesas
+    lo, hi = cut_x or (-OX, SAFE_W + OX)
+    thin = [i for i in range(4, n - 4) if rows[i][2] - rows[i][1] <= 1 and lo <= rows[i][0] <= hi
+            and _in_disc(rows[i][0], rows[i][1], sx, sy, r)]
+    cuts = set()
+    if thin:
+        for _ in range(rng.choice((1, 2, 2))):
+            c = rng.choice(thin)
+            if all(abs(c - k) > 7 for k in cuts):
+                cuts.update(range(c, c + rng.randint(2, 3)))
+    # the puff tops catch the sun (RED_LIGHT), but only in runs of 3+ along one row, so no
+    # lit pixel is left on its own where the mass steps or another layer crosses it. Where the
+    # top edge is lit HORIZON on the glow instead (below), that top pixel is not RED_LIGHT.
+    uncovered = [not G.cloud[top - 1 + OY, x + OX] for x, top, bot in rows]
+    glow_top = [uncovered[i] and lit_n[i] > 0.2 and not _in_disc(x, top - 1, sx, sy, r) and
+                math.hypot(x - sx, top - sy) < r + 10 and bot - top >= 2
+                for i, (x, top, bot) in enumerate(rows)]
+    lit = [i not in cuts and rows[i][2] - rows[i][1] >= 2 and lit_n[i] > -0.1 and not glow_top[i]
+           for i in range(n)]
+    i = 0
+    while i < n:
+        j = i
+        while j + 1 < n and lit[i] and lit[j + 1] and rows[j + 1][1] == rows[i][1]:
+            j += 1
+        if lit[i] and j - i < 2:
+            for k in range(i, j + 1):
+                lit[k] = False
+        i = j + 1
+    for i, (x, top, bot) in enumerate(rows):
+        if i in cuts:
+            continue
         for y in range(top, bot + 1):
             c = "RED"
-            if under and y == bot and bot - top >= 2 and under_n[i] > 0.0:
-                c = "MAROON"
+            if belly and y == bot and bot - top >= 2 and under_n[i] > 0.45:
+                c = "BLOOD"
+            elif y == top and lit[i]:
+                c = "RED_LIGHT"
             G.set(x, y, c, True)
-        if lit_top and not covered and lit_n[i] > -0.4:
-            if _in_disc(x, top - 1, sx, sy, r):
-                G.set(x, top - 1, "HORIZON", True)
-            elif math.hypot(x - sx, top - sy) < r + 10 and bot - top >= 2:
-                G.set(x, top, "HORIZON", True)
+        if uncovered[i] and lit_n[i] > 0.2 and _in_disc(x, top - 1, sx, sy, r):
+            G.set(x, top - 1, "HORIZON", True)
+        elif glow_top[i]:
+            G.set(x, top, "HORIZON", True)
     # ragged ends: dashes that drift off the tips
-    for side, last in ((-1, x0), (1, x1)):
-        y = int(round(y_mid))
-        for _ in range(rng.randint(1, 3)):
+    for side, (last, y), on in ((-1, (x0, rows[0][1]), tips[0]), (1, (x1, rows[-1][1]), tips[1])):
+        for _ in range(rng.randint(1, 3) if on else 0):
             gap = rng.randint(2, 4)
             dl = rng.randint(2, 5)
             x = last + side * gap
@@ -510,16 +546,22 @@ def _strip(G, rng, x0, x1, y_mid, thick, lit_top=True, under=True):
 
 
 def _strips(G, rng):
-    """Crimson cloud masses across the lower disc, running 20..40 px past it on both sides,
-    and a thin red wisp over its upper-right rim."""
-    # S1 at about 228..231, S2 at about 237..240, each made of a long mass and a shorter one
-    # stepped a row off, so the pair reads as a lumpy bank rather than a bar
-    _strip(G, rng, 104, 196, 229.5, 5.2)
-    _strip(G, rng, 150, 210, 231.5, 3.4)
-    _strip(G, rng, 112, 206, 239.0, 5.4)
-    _strip(G, rng, 98, 140, 240.5, 3.2)
-    _strip(G, rng, 168, 192, 211.5, 2.0, lit_top=False, under=False)
-    _strip(G, rng, 198, 212, 213.5, 1.6, lit_top=False, under=False)
+    """Two crimson masses across the lower part of the disc, from row sy + 6 down, so disc rows
+    195..227 (its upper 60 percent) stay a clean flat disc. The main one is a lumpy end of up
+    to five rows at the left rim (228..232), two to four rows over the middle, cut right of the
+    centre so the disc shows through, and runs on as a thin arm behind the right mesa and the
+    windmill. The lower one comes in from the left, two to four rows, is cut near the centre and
+    ends in dashes behind the right mesa. Neither is a full-width bar. The cuts are kept to the
+    middle of the disc, where they are seen between the mesas."""
+    sx, sy, r = SUN
+    _strip(G, rng, 108, 198, 230.5, 233.5, 3.8, peak=0.3, cut_x=(sx - 6, sx + 12))
+    _strip(G, rng, 104, 166, 239.5, 241.0, 3.0, peak=0.58, cut_x=(sx - 10, sx + 2))
+    # a short streak in the glow right of the disc, clear of it, drifting off to the right
+    _strip(G, rng, 187, 214, 218.5, 219.5, 2.4, peak=0.35, belly=False, tips=(False, True))
+    # and its partner on the left: a thin streak out of the left mesas toward the rim at about
+    # sy - 12 (clear of the butte top at y 214), its tip stopping 3 px short of the disc so the
+    # disc itself stays clean
+    _strip(G, rng, 100, 127, 209.5, 210.4, 2.2, peak=0.3, belly=False, tips=(True, False))
 
 
 def draw_sky(rng):

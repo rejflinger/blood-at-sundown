@@ -241,23 +241,63 @@ def letter(ch, H, W, S, T, ser=3, sr=4, prof=(1, 2, 1), cw=None, raw=False):
         g.spur(xl, ym, -1, prof)
         g.spur(xr, ym, 1, prof)
     elif ch == "W":
-        thin = max(3, (S + 1) // 2)
-        xL = ser + S // 2
-        xR = W - 1 - ser - thin // 2
-        v1, v2 = int(W * 0.31), int(W * 0.69)
-        apex = W // 2
+        # Drawn as mirrored row spans: two outer strokes lean in to two pointed feet, the
+        # middle stem splits into the inner legs above a short notch between the feet. The
+        # V counters open cwt px wide at the cap line, keep most of it for two fifths of the
+        # height and close at about 70%, so the notch between the feet starts before they
+        # close and no solid waist crosses the letter; no serif crosses them.
+        sa = S - 2                              # outer stroke width at the cap line
+        cwt = max(3, cw - 1)                    # counter width at the cap line
+        fi = max(3, W // 7)                     # how far each outer edge leans in
+        nb, fb = max(4, H // 6), 2              # the last nb rows curl in fb more
+        hold = int(H * 0.40)                    # rows the counter keeps its full width
+        dep = int(H * 0.70)                     # counter tip row
+        lean = 0.8                              # counter drift towards the foot (< 1/2 px
+                                                # by `hold`, so the middle stem keeps its width)
+        nh = int(H * 0.36)                      # notch height
+        nw = max(3, cw)                         # notch width at the baseline
+        c0 = ser + sa
 
-        def stroke(xt, xb, w):
-            h0, h1 = w / 2.0, w / 2.0
-            g.poly([(xt - h0 + 0.5, 0), (xt + h1 - 0.5, 0), (xb + h1 - 0.5, B), (xb - h0 + 0.5, B)])
+        def rnd(v):
+            return int(np.floor(v + 0.5))
 
-        stroke(xL, v1, S)
-        stroke(apex - 1, v1, thin)
-        stroke(apex, v2, S)
-        stroke(xR, v2, thin)
-        g.serif(0, xL + S // 2 + 2, 0, sr, True, True)
-        g.serif(xR - thin // 2 - 2, W - 1, 0, sr, True, True)
-        g.serif(apex - thin // 2 - 3, apex + S // 2 + 2, 0, max(2, sr - 1), True, True)
+        mid = (W - 1) / 2.0
+
+        def outer(y):
+            e = ser + fi * y / float(B)
+            if y > B - nb:
+                e += fb * ((y - (B - nb)) / float(nb)) ** 2
+            return rnd(e)
+
+        for y in range(H):
+            L = outer(y)
+            left = set(range(L, int(np.floor(mid)) + 1))
+            if y < dep:
+                # a slot cwt wide for `hold` rows, then a taper to the tip
+                t = min(y, hold) / float(dep)
+                ca, cb = c0 + lean * t, c0 + cwt - 1 + lean * t
+                if y > hold:
+                    k = (y - hold) / float(dep - hold)
+                    tipx = (ca + cb) / 2.0
+                    ca, cb = ca + (tipx - ca) * k, cb + (tipx - cb) * k
+                left -= set(range(rnd(ca), rnd(cb) + 1))
+            if y > B - nh:
+                hw = (nw / 2.0) * (y - (B - nh)) / float(nh)
+                left -= set(range(rnd(mid - hw + 0.001), int(np.floor(mid)) + 1))
+            if y == B:
+                left.discard(L)
+            for x in left:
+                g.px(x, y)
+                g.px(W - 1 - x, y)
+        g.serif(0, c0 - 1, 0, sr, True, False)
+        g.serif(W - c0, W - 1, 0, sr, False, True)
+        ym = int(H * 0.44)
+        rows = [(sr + i, d) for i, d in enumerate(bp)]     # serif brackets, then spurs
+        rows += [(ym - len(prof) // 2 + i, d) for i, d in enumerate(prof)]
+        for y, d in rows:                       # both follow the leaning outer edge
+            for j in range(1, d + 1):
+                g.px(outer(y) - j, y)
+                g.px(W - 1 - outer(y) + j, y)
     elif ch == "S":
         # two elliptical bowls drawn with a flat pen, joined by a heavy diagonal spine
         hx, hy = S / 2.0, T / 2.0
@@ -310,6 +350,21 @@ def letter(ch, H, W, S, T, ser=3, sr=4, prof=(1, 2, 1), cw=None, raw=False):
 def trim(m):
     cols = np.where(m.any(axis=0))[0]
     return m[:, cols[0]: cols[-1] + 1]
+
+
+def counter_rows(m, width):
+    """Rows of the glyph mask m that open two or more inner gaps at least `width` wide."""
+    n = 0
+    for row in m:
+        xs = np.nonzero(row)[0]
+        if len(xs) == 0:
+            continue
+        gaps, run = 0, 0
+        for v in row[xs[0]: xs[-1] + 1]:
+            run = 0 if v else run + 1
+            gaps += run == width
+        n += gaps >= 2
+    return n
 
 
 def kern_word(text, specs, S, T, gmin, kprof=None, **kw):
@@ -599,10 +654,15 @@ def gen_logo():
     # spaced on the spur-less bodies, so the mid-stem spurs of neighbours nearly meet
     blood, _blab, bsp, by0 = kern_word("BLOOD", bspec, 12, 7, 3, kprof=(0,), ser=3, sr=5,
                                        prof=(1, 1, 2, 2, 3, 2, 2, 1, 1))
-    sspec = ([(50, 26, -10, {})] + [(39, w, rng.randint(0, 1), {}) for w in (24, 24, 23, 20, 27)]
+    sspec = ([(50, 26, -10, {})] + [(39, w, rng.randint(0, 1), {}) for w in (23, 24, 22, 20, 29)]
              + [(50, 26, -11, {})])
-    sundown, _slab, ssp, sy0 = kern_word("SUNDOWN", sspec, 8, 5, 1, ser=2, sr=4,
-                                         prof=(1, 1, 2, 1, 1), cw=5)
+    sundown, slab, ssp, sy0 = kern_word("SUNDOWN", sspec, 8, 5, 1, ser=2, sr=4,
+                                        prof=(1, 1, 2, 1, 1), cw=5)
+    if counter_rows(slab == 5, 3) < 12:        # the W must not close up into a block
+        raise ValueError("logo: the W's counters are under 3 px for most of their depth")
+    for row in slab == 5:                       # nor grow a solid waist between counters and notch
+        if row.any() and np.count_nonzero(np.diff(row.astype(int)) == 1) + int(row[0]) < 2:
+            raise ValueError("logo: a row runs solid across the W")
     bx, sx = CX - blood.shape[1] // 2, CX - sundown.shape[1] // 2
     lb = np.zeros((Hc, Wc), dtype=bool)
     lb[oy + by0: oy + by0 + blood.shape[0], bx: bx + blood.shape[1]] = blood
@@ -656,9 +716,31 @@ def gen_logo():
     dist = dist_field(core, 14)
     nz = value_noise(rng, Wc, Hc, 5)
     nz2 = value_noise(rng, Wc, Hc, 2)
+
+    def right_edge(r):
+        """Last column the splatter may use in row r. The axis lands on screen x 135, so
+        CX + 94 keeps clear of the crow's beak (screen x 232) beside the top of the last N,
+        and from the N's middle down CX + 90 or 91 (logo x 191 or 192) leaves two or three
+        pixels of sky before the corner of the building under the crow (screen x 229). The
+        halo pass after the thorns reshapes that side between CX + 89 and CX + 92."""
+        if r > sy + 14:
+            return CX + 90 + int(nz2[r, CX + 90] > 0.5)
+        if r >= sy - 10:
+            return CX + 94
+        return CX + 100
+
+    clear = xx_ <= np.array([right_edge(r) for r in range(Hc)])[:, None]
+
+    def free(q, r):
+        """Inside the logo's box: 100 px either side of the axis, at most 8 rows above B and
+        D, and left of right_edge."""
+        if not (0 <= q < Wc and oy - 13 <= r < Hc) or abs(q - CX) > 100:
+            return False
+        return q <= right_edge(r)
+
     base = np.where(yy_ < oy + 8, 3, 4)          # a thin hug over the tops of BLOOD
     reach = base + np.round(nz * 2.4 + nz2 * 1.2 - 1.3).astype(int)
-    backing = (dist <= np.maximum(reach, 3)) | core
+    backing = ((dist <= np.maximum(reach, 3)) | core) & clear
     edge_pts = sorted(zip(*np.nonzero(backing & ~erode(backing, diag=False))))
 
     def nearest_edge(tx, ty):
@@ -667,17 +749,11 @@ def gen_logo():
     B0, B1 = bspan[0][0], bspan[-1][1]
     S0, S1 = sspan[0][0], sspan[-1][1]
 
-    def free(q, r):
-        """Inside the logo's box: 100 px either side of the axis, at most 8 rows above B and
-        D, and clear of the crow's beak (native x 232) beside the top of the last N."""
-        if not (0 <= q < Wc and oy - 13 <= r < Hc) or abs(q - CX) > 100:
-            return False
-        return not (sy - 10 <= r <= sy + 14 and q > CX + 94)
-
-    # corner lobes: left of B, right of D, left of S, right of the last N (below the crow)
+    # corner lobes: left of B, right of D, down the left of S. None right of the last N:
+    # the crow and the building corner stand there.
     lobes = [(B0 - 3, oy + 14, 34, -1), (B0 - 2, oy + 40, 24, -1), (B1 + 3, oy + 8, 36, 1),
              (B1 + 2, oy + 34, 30, 1), (S0 - 3, sy + 6, 38, -1), (S0 - 2, sy + 30, 24, -1),
-             (S1 + 1, sy + 33, 26, 1)]
+             (S0 - 1, sy + 38, 26, -1)]
     for tx, ty, size, side in lobes:
         ey, ex = nearest_edge(tx, ty)
         splat = blob(rng, ex + side * 3, ey, size)
@@ -703,6 +779,7 @@ def gen_logo():
     ol = dilate(dilate(ls))
     wet = np.zeros((Hc, Wc), dtype=bool)
     wet_top, wet_bot = {}, {}
+    xe = min([S1 + 4] + [right_edge(r) for r in range(sy + 15, Hc)])  # taper before the building
     xr = range(S0 - 4, S1 + 5)
     bump = np.zeros(Wc)
     for _ in range(9):                          # lumps where the blood gathers
@@ -717,12 +794,25 @@ def gen_logo():
         ob = max(r[-1] for r in rows)
         v += rng.uniform(-0.9, 0.9)
         v = max(-1.2, min(1.2, v * 0.8))
-        edge_fade = min(x - (S0 - 4), S1 + 4 - x)
+        edge_fade = min(x - (S0 - 4), xe - x)
         dep = min(7, max(4, int(round(4.8 + v + bump[x])))) - max(0, 4 - edge_fade)
-        if dep < 2:
+        if dep < 2 or x > xe:
             continue
         wet[ob + 1: ob + 1 + dep, x] = True
         wet_top[x], wet_bot[x] = ob + 1, ob + dep
+    # short icicles break the soak's lower edge so it reads ragged, not ruled. They and the
+    # thorns below draw from their own stream, so tuning them leaves the lettering's texture.
+    rng2 = random.Random(1874)
+    wx = sorted(wet_bot)
+    x = wx[0] + rng2.randint(2, 5)
+    while x < wx[-1] - 2:
+        wd, ln = rng2.choice((1, 2, 2, 3)), rng2.choice((1, 2, 2, 3))
+        for c in range(x, x + wd):
+            if c - 1 in wet_bot and c + 1 in wet_bot:
+                e = ln - 1 if wd == 3 and c != x + 1 else ln   # a 3 px icicle has a point
+                wet[wet_bot[c] + 1: wet_bot[c] + 1 + e, c] = True
+                wet_bot[c] += e
+        x += wd + rng2.randint(2, 7)
     backing |= wet
 
     cols[backing] = "INK"
@@ -763,7 +853,7 @@ def gen_logo():
         (sp[6][0] + 6, 4, 17), (sp[6][0] + 11, 2, 7), (sp[6][1] - 4, 1, 4)]
     shine = []
     body = {4: ("WINE", "MAROON", "WINE", "WINE_DARK"), 3: ("WINE", "MAROON", "WINE_DARK"),
-            2: ("WINE", "WINE_DARK"), 1: ("WINE",)}
+            2: ("MAROON", "WINE_DARK"), 1: ("WINE",)}
     for x, w0, ln in drip_spec:
         x += rng.randint(-1, 1)
         if x not in wet_bot:
@@ -772,11 +862,13 @@ def gen_logo():
         taper = max(1, int(ln * 0.5))
         for j in range(ln):
             w = max(1, w0 - (j * w0) // taper) if j < taper else 1
+            if ln >= 8 and w0 >= 2 and j < ln * 7 // 10:
+                w = max(w, 2)                   # long drips keep a 2 px body, then a tail
             c0 = x - (w - 1) // 2
             for i, c in enumerate(range(c0, c0 + w)):
                 name = body[w][i]
-                if j < 3 and i == (w - 1) // 2 and w <= 2:
-                    name = "MAROON"             # the core highlight near the neck
+                if j < 2 and i == (w - 1) // 2 and w <= 2:
+                    name = "BLOOD"              # the core highlight near the neck
                 put(cols, c, top_y + j, name)
                 drips[top_y + j, c] = True
         if w0 >= 2:                             # the rim swells where a drip leaves it
@@ -822,6 +914,7 @@ def gen_logo():
     out_d = dist_field(cols != "", 9)
     cand = sorted(zip(*np.nonzero((out_d >= 2) & (out_d <= 4))))
     placed = tries = 0
+    flecks = []
     while placed < 40 and tries < 6000:         # flecks thrown off the splatter
         tries += 1
         y, x = cand[rng.randrange(len(cand))]
@@ -837,6 +930,7 @@ def gen_logo():
         name = "INK" if rng.random() < 0.85 else "WINE_DARK"
         for q, r in pts:
             cols[r, q] = name
+        flecks.append(pts)
         placed += 1
     # bright red droplets flicked off the top left of B and the right of D: round drops
     # with a light top left pixel and an ink shadow on their lower right
@@ -850,7 +944,7 @@ def gen_logo():
             drop = [(x + i, y + j) for j, row in enumerate(shape) for i, c in enumerate(row) if c == "#"]
             ds = set(drop)
             shadow = {(q + a, r + b) for q, r in drop for a, b in ((1, 0), (0, 1), (1, 1))} - ds
-            if all(free(q, r) and out_d[r, q] >= 2 for q, r in ds | shadow):
+            if all(free(q, r) and out_d[r, q] >= 2 and cols[r, q] == "" for q, r in ds | shadow):
                 break
         else:
             continue
@@ -984,6 +1078,7 @@ def gen_logo():
     bot = ls & ~np.roll(ls, -1, axis=0)
     for y, x in zip(*np.nonzero(rgt | bot)):
         cols[y, x] = "TAN" if cols[y, x] in ("SAND", "TAN") else "CREAM_SHADE"
+    fill = cols.copy()                          # the letters before any blood lands on them
     pool = [(x, y) for y, x in zip(ys_, xs_)]
     # splash centres: always one high on the first S and one on the last N
     centres = [(sspan[0][0] + 7, sy - 4), (sspan[-1][1] - 6, sy - 5)]
@@ -1037,6 +1132,125 @@ def gen_logo():
             cols[y, x + side] = "BLOOD"
         if ls[y + ln, x]:
             cols[y + ln, x] = "MAROON"
+    # a small mark one pixel off another reads as a pair of dots (on a narrow stem, as a face),
+    # so marks of four pixels or fewer either touch their neighbour or keep two pixels of cream
+    # from it: a small mark closer than that is wiped back to the letter fill
+    redm = ls & np.isin(cols, ("RED", "BLOOD", "MAROON"))
+    marks = []
+    seen = np.zeros_like(redm)
+    for y, x in zip(*np.nonzero(redm)):
+        if seen[y, x]:
+            continue
+        comp, stack = [], [(y, x)]
+        seen[y, x] = True
+        while stack:
+            r, q = stack.pop()
+            comp.append((r, q))
+            for dy in (-1, 0, 1):
+                for dx in (-1, 0, 1):
+                    if redm[r + dy, q + dx] and not seen[r + dy, q + dx]:
+                        seen[r + dy, q + dx] = True
+                        stack.append((r + dy, q + dx))
+        marks.append(sorted(comp))
+    for comp in sorted(marks, key=lambda c: (len(c), c[0])):
+        if len(comp) > 4:
+            continue
+        own = set(comp)
+        if any(redm[r + dy, q + dx] and (r + dy, q + dx) not in own
+               for r, q in comp for dy in range(-2, 3) for dx in range(-2, 3)):
+            for r, q in comp:
+                cols[r, q] = fill[r, q]
+                redm[r, q] = False
+
+    # thorns: short ink spikes on the splatter's outline, above the soak, for the concept's
+    # spiky halo; a 2 px root on the outline, then a 1 px point
+    outline = sorted(zip(*np.nonzero(backing & ~erode(backing, diag=False) & ~wet)))
+    thorns = []
+    for _ in range(600):
+        if len(thorns) >= 26:
+            break
+        y, x = outline[rng2.randrange(len(outline))]
+        if y > sy + 24 or any(abs(x - a) + abs(y - b) < 10 for a, b in thorns):
+            continue
+        dx, dy = x - CX, (y - cy_mid) * 1.6
+        n = max(1e-6, (dx * dx + dy * dy) ** 0.5)
+        ux, uy = dx / n, dy / n
+        ln = rng2.randint(2, 4)
+        pts = [(int(round(x + ux * i)), int(round(y + uy * i))) for i in range(1, ln + 1)]
+        q, r = pts[0]
+        pts.append((q + int(round(-uy)), r + int(round(ux))))
+        if len(set(pts)) < ln + 1 or any(not free(q, r) or cols[r, q] != "" for q, r in pts):
+            continue
+        ring8 = {(q + a, r + b) for q, r in pts for a in (-1, 0, 1) for b in (-1, 0, 1)}
+        if any(cols[r, q] not in ("", "INK", "WINE_DARK") for q, r in ring8 - set(pts)):
+            continue                            # keep clear of the red droplets
+        for q, r in pts:
+            cols[r, q] = "INK"
+        thorns.append((x, y))
+
+    # --- the halo's right side beside the last N ------------------------------------------
+    # right_edge() clips the splatter straight down the side of the building under the crow,
+    # which reads as a ruled cut. Here that side gets lumps and notches of two to four ink
+    # pixels past the N in runs of two to four rows, a short point out to the limit (screen
+    # x 227) beside the post stub, which stands a pixel right of the corner post below it, and
+    # a rounded foot where the soak ends, so two pixels of sky always show before the
+    # building. A random stream of its own keeps the rest of the logo as it was.
+    rng3 = random.Random(1875)
+    lim = CX + 92
+    stub = sy + 25                              # rows above this face the post stub
+    xa = S1 - 3                                 # inside the N's right stem, then its ink
+    rrows = []
+    r = sy + 15
+    while cols[r, xa] != "":
+        rrows.append(r)
+        r += 1
+    e0, lx = {}, {}
+    for r in rrows:
+        e = xa
+        while cols[r, e + 1] != "":
+            e += 1
+        e0[r] = e
+        lx[r] = max([x for x in range(xa - 6, e + 1) if ls[r, x]] or [xa - 7])
+    rw = min(r for r in rrows if wet[r, xa])    # first soak row
+    prof, runs, r, e = {}, [], rrows[0], CX + 90
+    while r <= rrows[-1]:
+        run = rng3.choice((2, 2, 3, 3, 4))
+        runs.append((r, run, e))
+        for k in range(run):
+            prof[r + k] = e
+        r += run
+        e = rng3.choice(sorted({CX + 89, CX + 90, CX + 91} - {e}))
+    lumps = [(r, run) for r, run, e in runs if e == CX + 91 and r + run // 2 < stub]
+    for r, run in sorted(rng3.sample(lumps, min(2, len(lumps)))):
+        prof[r + run // 2] = lim                # a 1 px point off a lump
+    for r in rrows:
+        cap = lim if r < stub else lim - 1
+        prof[r] = min(cap, max(prof[r], lx[r] + 2))   # at least two ink pixels past the N
+    e_ref = prof[rw - 2]
+    for k, r in enumerate(r for r in rrows if r >= rw - 1):
+        prof[r] = min(prof[r], e_ref - (k + 1) // 2, e0[r])   # a rounded foot into the soak
+    for r in rrows:
+        p = prof[r]
+        if p < e0[r]:
+            cols[r, p + 1: e0[r] + 1] = ""
+            backing[r, p + 1: e0[r] + 1] = False
+            wet[r, p + 1: e0[r] + 1] = False
+        elif p > e0[r] and not wet[r, e0[r]]:
+            cols[r, e0[r] + 1: p + 1] = "INK"
+            backing[r, e0[r] + 1: p + 1] = True
+        if not wet[r, p]:                       # the ring colour follows the new edge
+            for x in range(lx[r] + 1, p):
+                if cols[r, x] == "WINE_DARK":
+                    cols[r, x] = "INK"
+            cols[r, p] = "WINE_DARK" if nz2[r, p] > 0.5 else "INK"
+    # the gap between the last N and the crow keeps no loose flecks
+    for pts in flecks:
+        own = set(pts)
+        if all(q > S1 + 1 and r >= sy - 12 for q, r in pts) and not any(
+                cols[r + b, q + a] != "" and (q + a, r + b) not in own
+                for q, r in pts for a in (-1, 0, 1) for b in (-1, 0, 1)):
+            for q, r in pts:
+                cols[r, q] = ""
 
     # no lone pixels in the letter fills or on the splatter
     despeckle8(cols, lb | ls)
@@ -1051,16 +1265,21 @@ def gen_logo():
     for (x, y, name) in orn:
         cols[y, x] = name
 
-    # --- to RGBA, cropped symmetric about the letters' axis ------------------------------
-    img = Image.new("RGBA", (Wc, Hc), (0, 0, 0, 0))
+    limit = np.array([lim if r > sy + 14 else right_edge(r) for r in range(Hc)])
+    if (cols != "")[xx_ > limit[:, None]].any():
+        raise ValueError("logo: splatter past right_edge would cover the crow or the building")
+
+    # --- to RGBA in a fixed 202 x 151 box centred on the letters' axis --------------------
+    # ui.gd centres the logo and hangs the tagline 3 px under it, so the box must not follow
+    # the random splatter: free() keeps the splatter inside it and the drips end above its foot
+    box = (CX - 101, oy - 13, CX + 101, oy + 138)
     ys_, xs_ = np.nonzero(cols != "")
+    if xs_.min() < box[0] or xs_.max() >= box[2] or ys_.min() < box[1] or ys_.max() >= box[3]:
+        raise ValueError("logo: splatter outside the %d x %d box" % (box[2] - box[0], box[3] - box[1]))
+    img = Image.new("RGBA", (Wc, Hc), (0, 0, 0, 0))
     for y, x in zip(ys_, xs_):
         img.putpixel((int(x), int(y)), C(cols[y, x]))
-    x0, y0, x1, y1 = img.getbbox()
-    half = max(CX - x0, x1 - CX)
-    img = img.crop((CX - half, y0, CX + half, y1))
-    if img.width > 206 or img.height > 152:
-        print("warning: logo larger than 206 x 152:", img.size)
+    img = img.crop(box)
     img.save(os.path.join(ROOT, "assets", "ui", "logo.png"))
     print("logo", img.size)
 

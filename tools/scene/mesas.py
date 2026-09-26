@@ -1,12 +1,13 @@
 """Mesas, buttes and the far ridge along the horizon.
 
 Back to front: a far ridge whose hazy crest line runs under the sun with sunlit valley haze
-below it, two far buttes standing on that line, a low saddle hill closing the valley, the
-main range of buttes in three depth planes (red-orange next to the sun, crimson in the
-middle, dark purple for the nearest rock) with organ-pipe column faces, short rubble talus
-and a few hoodoos, then the rolling valley slopes (humped ridges with dark scrub) that
-funnel down to the church. Everything is painted into a grid of palette names first and
-turned into pixels at the end, so every pixel is a whole palette colour.
+below it, two far buttes standing on that line, a far hill closing the valley, the main
+range of buttes in three depth planes (red-orange next to the sun, crimson in the middle,
+dark purple for the nearest rock) with organ-pipe column faces, short rubble talus and a few
+hoodoos, interlocking spurs in the heart of the V, then the rolling purple valley slopes
+(humped ridges with dark scrub) that funnel down to the church. Everything is painted into
+a grid of palette names first and turned into pixels at the end, so every pixel is a whole
+palette colour.
 """
 import math
 
@@ -64,6 +65,12 @@ def lerp_pts(pts, x):
         if xa <= x <= xb:
             return ya + (yb - ya) * (x - xa) / (xb - xa)
     return pts[-1][1]
+
+
+def rim_rows(topf, x, cap=3):
+    """Rows a 1 px lit rim spans at column x: where the line drops 2+ px to a neighbour the
+    rim runs down to meet it, so a steep ridge line stays unbroken instead of dotted."""
+    return max(1, min(cap, max(topf(x - 1), topf(x + 1)) - topf(x)))
 
 
 # 1 far ridge -------------------------------------------------------------------------------
@@ -156,28 +163,82 @@ def draw_far_buttes(g):
                     g.set(x, y, "SKY_MID")
 
 
-# 3 saddle hill closing the valley -------------------------------------------------------------
+# 3 the heart of the V ------------------------------------------------------------------------
+# A far hill closes the valley under the sun, and in front of it two pairs of spurs reach in
+# from alternate sides, each lower and nearer than the last (interlocking spurs), so the V
+# recedes in lit ridge lines instead of one flat glow. The saddle's crest peaks behind the
+# steeple, well above the cross, so the cross stands against rock rather than the glow.
 def saddle_top(x):
-    return 259 + round(((x - 143) / 21.0) ** 2 * 6 + 0.8 * math.sin(x / 5.0))
+    return 253 + round(((x - 139) / 13.0) ** 2 * 7 + 0.6 * math.sin(x / 5.0))
 
 
 def draw_saddle(g):
-    """A low hill across the valley, lit red by the haze behind it (lighter than the slopes
-    in front, so the valley reads as a glowing V)."""
+    """The far hill across the valley, lit red by the haze behind it."""
     for x in range(104, 184):
         top = saddle_top(x)
-        peak = abs(x - 143) < 9
+        kr = rim_rows(saddle_top, x) - 1
+        peak = abs(x - 141) < 12
         for y in range(top, FLOOR + 1):
-            d = y - top
+            d = max(0, y - top - kr)
+            clear = 134 <= x <= 146          # nothing but plain rock behind the cross
             if d == 0:
                 c = "RED_LIGHT" if peak and (x % 5) < 3 else "MESA_LIT"
-            elif d <= 3:
+            elif d == 4 and not clear and hsh(x // 3, 22) < 0.5:
+                c = "MESA_LIT"              # broken ledge lines on the far hill
+            elif d == 7 and not clear and hsh(x // 2, 23) < 0.35:
+                c = "SKY_HIGH"              # and a band of far scrub under them
+            elif d <= 9:
                 c = "SKY_MID"
-            elif d == 4:
+            elif d == 10:
                 c = "SKY_HIGH" if D(x, y, 0.5) else "SKY_MID"
             else:
                 c = "SKY_HIGH"
             g.set(x, y, c)
+
+
+# (side the spur comes from, root x, root y, fall per px toward the tip, tip x); far to near
+# the noses stop short of the steeple (x 136..144), so no ridge line crosses the cross or spire
+SPURS = [("L", 116, 260, 0.12, 135), ("R", 164, 262, 0.12, 145),
+         ("L", 120, 266, 0.14, 135), ("R", 160, 268, 0.14, 145)]
+
+
+def spur_top(k, x):
+    side, xr, yr, fall, xt = SPURS[k]
+    run = (x - xr) if side == "L" else (xr - x)          # px from the root toward the tip
+    left = (xt - x) if side == "L" else (x - xt)          # px still to go to the tip
+    y = yr + fall * run + 0.7 * math.sin(x / 4.0 + k)
+    if left < 5:
+        y += (5 - left) ** 2 * 0.7                        # the spur's nose rounds off
+    return round(y)
+
+
+def spur_colour(k, x, y, d):
+    near = k >= 2
+    if d == 0:
+        return "SKY_MID" if near else "MESA_LIT"
+    if d == 1:
+        return "SKY_HIGH" if near else "SKY_MID"
+    if d < 4:
+        return "SKY_HIGH" if near or d == 3 and D(x, y, 0.5) else "SKY_MID"
+    if near:
+        return "PLUM_LIGHT" if d > 4 or D(x, y, 0.5) else "SKY_HIGH"
+    return "SKY_HIGH"
+
+
+def draw_spurs(g):
+    for k, (side, xr, yr, fall, xt) in enumerate(SPURS):
+        xa, xb = (100, xt) if side == "L" else (xt, 180)
+        for x in range(xa, xb + 1):
+            top = spur_top(k, x)
+            kr = rim_rows(lambda xx: spur_top(k, xx), x) - 1
+            for y in range(top, FLOOR + 1):
+                g.set(x, y, spur_colour(k, x, y, max(0, y - top - kr)))
+        # a clump of scrub on each spur, 2..3 px, a little under its crest
+        for j in range(2):
+            x = xr + (1 if side == "L" else -1) * (8 + j * 9 + int(hsh(k, j, 31) * 4))
+            y = spur_top(k, x) + 2 + int(hsh(k, j, 32) * 2)
+            for dx, dy in ((0, 0), (1, 0), (0, -1)) if hsh(k, j, 33) < 0.5 else ((0, 0), (1, 0)):
+                g.set(x + dx, y + dy, "PLUM")
 
 
 # 4 main buttes -------------------------------------------------------------------------------
@@ -189,12 +250,13 @@ def draw_saddle(g):
 # Later entries are nearer and cover the feet of earlier ones.
 BUTTES = [
     dict(name="M8", plane="near", top=208, sun="L",
-         left=[(208, 214), (228, 212), (240, 210)], lskirt=205,
+         left=[(208, 229), (218, 229), (219, 220), (240, 220)], lskirt=218,
          right=[(208, 238), (214, 238)], rskirt=238,
          extra_right=[(214, 240, 410)]),
     dict(name="M6", plane="mid", top=224, sun="L",
          left=[(224, 178), (231, 178), (232, 172), (244, 171)], lskirt=170,
-         right=[(224, 199), (242, 200)], rskirt=206),
+         right=[(224, 199), (226, 200), (228, 201), (230, 202), (232, 203), (242, 203)],
+         rskirt=206),
     dict(name="M7", plane="sun", top=231, sun="L", cap="round",
          left=[(231, 170), (244, 169)], lskirt=166,
          right=[(231, 174), (244, 175)], rskirt=178),
@@ -210,9 +272,9 @@ BUTTES = [
     dict(name="M2", plane="mid", top=197, sun="R", cap="round",
          left=[(197, 86), (240, 84)], lskirt=81,
          right=[(197, 90), (212, 90), (213, 92), (240, 93)], rskirt=96),
-    dict(name="M1", plane="near", top=186, sun="R",
-         left=[(186, 42), (240, 38)], lskirt=30,
-         right=[(186, 78), (213, 80), (214, 84), (240, 86)], rskirt=90),
+    dict(name="M1", plane="near", top=205, sun="R",   # low, well under the saloon beam's end
+         left=[(205, 44), (240, 38)], lskirt=30,
+         right=[(205, 72), (210, 72), (211, 86), (240, 88)], rskirt=92),
 ]
 
 # tone sets per depth plane: face levels index RAMP (lit column, dark column, 1 px gap);
@@ -351,7 +413,6 @@ def draw_butte(g, b, seed):
         band = max(1, min(band, wide // 3))
         talus = y > BASE
         skirt = y > wall_end
-        lower = y > y_dark - 3
         for x in range(xl, xr + 1):
             din = (xr - x) if sun_r else (x - xl)
             # face tone from the column map; each column sinks at its own row
@@ -408,7 +469,7 @@ def draw_butte(g, b, seed):
 
 
 # hoodoos: small capped pillars at the feet of the buttes, (x0, x1, top, sun side)
-HOODOOS = [(99, 102, 239, "R"), (126, 128, 245, "R"), (207, 210, 239, "L")]
+HOODOOS = [(99, 102, 239, "R"), (126, 128, 245, "R")]
 
 
 def draw_hoodoos(g):
@@ -440,8 +501,14 @@ def draw_hoodoos(g):
 
 
 # 5 valley slopes ----------------------------------------------------------------------------
-LEFT_SLOPE = [(-140, 232), (20, 238), (60, 244), (95, 248), (125, 264), (133, 270), (140, 276)]
-RIGHT_SLOPE = [(140, 276), (147, 272), (155, 268), (185, 256), (215, 246), (250, 236), (410, 228)]
+LEFT_SLOPE = [(-140, 226), (20, 232), (60, 238), (95, 245), (108, 247), (114, 252), (119, 255),
+              (122, 257), (125, 262), (128, 267), (131, 271), (134, 275), (137, 279), (140, 284)]
+RIGHT_SLOPE = [(140, 284), (143, 279), (146, 275), (149, 271), (152, 269), (155, 266), (157, 263),
+               (159, 259), (162, 257), (168, 256), (174, 256), (178, 257), (182, 255), (186, 252),
+               (192, 249), (204, 243), (222, 235), (250, 231), (410, 226)]
+# The V arms plunge steeply over the last ~18 px either side of x 140 and meet behind the
+# church, so about 15..25 px of purple valley shows above the far rows; only over the church
+# roof's eaves (which fall away from the V) does more show.
 SUN_X = 155
 
 
@@ -493,9 +560,9 @@ def slope_base_colour(x, y, top):
         return "MESA_LIT" if sun else "SKY_MID"
     if d == 1:
         return "SKY_MID" if sun else "SKY_HIGH"
-    if d < 6:
+    if d < 4:
         return "SKY_HIGH"
-    if d == 6:
+    if d == 4:
         return "PLUM_LIGHT" if D(x, y, 0.5) else "SKY_HIGH"
     return "PLUM_LIGHT"
 
@@ -515,7 +582,7 @@ def mound_colour(x, y, cx, w, top, r):
         return under if sun and abs(u) < 0.8 else body
     if d == 1:
         return under if sun and abs(u) < 0.35 else body
-    deep = 5 if r < 3 else 3                     # rows of lit body before the shade
+    deep = 3 if r < 3 else 2                     # rows of lit body before the shade
     if d < deep:
         return "SKY_HIGH" if abs(u) < 0.85 else "PLUM_LIGHT"
     if d == deep:
@@ -523,38 +590,21 @@ def mound_colour(x, y, cx, w, top, r):
     return "PLUM_LIGHT"
 
 
-LIGHTER = {"PLUM_LIGHT": "SKY_HIGH", "SKY_HIGH": "SKY_MID", "SKY_MID": "SKY_MID",
-           "MESA_LIT": "MESA_LIT", "RED_LIGHT": "RED_LIGHT", "PLUM": "PLUM", "SHADOW": "SHADOW"}
-
-
-def valley_glow(x, y, c):
-    """The slopes nearest the glowing V sit lighter: two tones in the heart of the V, one
-    tone around it, each change a single dithered ring."""
-    r = math.hypot((x - 143) / 42.0, (y - 268) / 14.0)
-    steps = 0
-    if r < 0.55 or (r < 0.65 and D(x, y, 0.5)):
-        steps = 2
-    elif r < 1.0 or (r < 1.1 and D(x, y, 0.5)):
-        steps = 1
-    for _ in range(steps):
-        c = LIGHTER.get(c, c)
-    return c
-
-
 def draw_slopes(g):
     tops = {}
     for x in range(X0, X1 + 1):
         top = crest(x)
         tops[x] = [top]
+        kr = rim_rows(crest, x) - 1
         for y in range(top, FLOOR + 1):
-            g.set(x, y, valley_glow(x, y, slope_base_colour(x, y, top)))
+            g.set(x, y, slope_base_colour(x, y, min(y, top + kr)))
 
     def bush(x, y, shape, x_sun, lines):
         pts = {"2x1": [(0, 0), (1, 0)],
                "2x2": [(0, -1), (1, -1), (0, 0), (1, 0)],
                "3x2": [(1, -1), (0, 0), (1, 0), (2, 0)] if hsh(x, y, 5) < 0.5 else
                       [(0, -1), (1, -1), (0, 0), (1, 0), (2, 0)],
-               "tree": [(1, -3), (1, -2), (0, -1), (1, -1), (2, -1), (0, 0), (1, 0), (2, 0)]}[shape]
+               "tree": [(1, -2), (0, -1), (1, -1), (2, -1), (0, 0), (1, 0), (2, 0)]}[shape]
         w = max(p[0] for p in pts) + 1
         for dx, dy in pts:   # never in the two rows under any ridge line, never low down
             ls = lines.get(x + dx)
@@ -575,10 +625,7 @@ def draw_slopes(g):
                 continue
             tops[x].append(top)
             for y in range(top, FLOOR + 1):
-                c = valley_glow(x, y, mound_colour(x, y, cx, w, top, r))
-                if y >= 290:
-                    c = "PLUM" if D(x, y, (y - 289) / 6.0) else c
-                g.set(x, y, c)
+                g.set(x, y, mound_colour(x, y, cx, w, top, r))
         # a clump of scrub at the foot of the mound, on its shaded side, denser near the V
         near = 1.0 - min(1.0, abs(cx - 140) / 120.0)
         n = 1 + int(hsh(sid, 60) * (2 + 3 * near))
@@ -591,14 +638,21 @@ def draw_slopes(g):
                 shape = "tree"
             bush(bx, y + int(hsh(sid, j, 67) * 2) - (j % 2), shape, cx < SUN_X, tops)
             bx += (2 if shape == "2x1" or shape == "2x2" else 3) * -shade
-    # scrub along the front crest band as well, sparse
-    x = X0
-    while x <= X1:
-        near = 1.0 - min(1.0, abs(x - 140) / 120.0)
-        if hsh(x, 71) < 0.15 + 0.35 * near:
-            y = crest(x) + 3 + int(hsh(x, 72) * 4)
-            bush(x, y, ("2x2", "2x1", "3x2")[int(hsh(x, 73) * 2.8)], x < SUN_X, tops)
-        x += 4 + int(hsh(x, 74) * 4)
+    # scrub along the front crest band as well, sparse, and a second loose row lower down
+    # the flanks that show above the far rooftops
+    for k, (d0, p0, p1) in enumerate(((3, 0.15, 0.35), (10, 0.05, 0.3))):
+        x = X0 + 2 * k
+        while x <= X1:
+            near = 1.0 - min(1.0, abs(x - 140) / 120.0)
+            if hsh(x, k, 71) < p0 + p1 * near:
+                y = crest(x) + d0 + int(hsh(x, k, 72) * 4)
+                bush(x, y, ("2x2", "2x1", "3x2")[int(hsh(x, k, 73) * 2.8)], x < SUN_X, tops)
+            x += 4 + int(hsh(x, k, 74) * 4)
+    # the valley floor behind the far end of the street: solid PLUM under a lumpy edge of
+    # 3 px wide steps, 0..2 px high (it shows beside the church)
+    for x in range(X0, X1 + 1):
+        for y in range(288 + int(hsh(x // 3, 88, 5, 1) * 3), FLOOR + 1):
+            g.set(x, y, "PLUM")
 
 
 def draw_mesas(rng):
@@ -611,5 +665,6 @@ def draw_mesas(rng):
     for i, b in enumerate(BUTTES):
         draw_butte(g, b, 500 + i * 17)
     draw_hoodoos(g)
+    draw_spurs(g)
     draw_slopes(g)
     return g.layer()

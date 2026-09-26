@@ -3,9 +3,10 @@
 Backlit: the sun is to the right of the figure, so every face turned to the camera is dark
 (INK, BROWN_BLACK, CHARCOAL, TEAL_DARK) and the shape reads through 1 px RIM lines on its
 right-hand and top edges, the rust pattern band of the poncho and the tan fringe. The owner
-lets the title buttons (x 78..193, y 322..519) overlap the figure: the hat brim ends just
-above PLAY, while the right shoulder, the muzzle end of the holster and the gloved arm run
-under the button column.
+lets the title buttons (scripts/ui.gd: x 78..193, y 318..511) overlap the figure: the hat
+brim tip ends above PLAY (x 85 at most, clear of the lantern and the wagon), the right
+shoulder and the sleeve run under the button column, and the gun and holster (x 53..74) and
+the gloved fist (x 78..97, from y 512) hang clear of it.
 """
 import math
 
@@ -96,12 +97,93 @@ def _bez(p0, p1, p2, n=10):
     return out
 
 
+def _crescent(L, pts, w, c, toward=(1.0, -1.0), span=(0.0, 1.0)):
+    """A tapered fold: the polyline pts thickened on the side facing `toward` (the light) to
+    about w px at its middle and to nothing at both ends, filled as one polygon, so the fold
+    is a solid 4-connected shape that steps cleanly. With span=(t0, t1) only the outer edge
+    between those fractions of its length is drawn, as a 1 px line (the lit crest)."""
+    ls = [0.0]
+    for (x0, y0), (x1, y1) in zip(pts, pts[1:]):
+        ls.append(ls[-1] + math.hypot(x1 - x0, y1 - y0))
+    outer = []
+    for i, (x, y) in enumerate(pts):
+        (ax, ay), (bx, by) = pts[max(0, i - 1)], pts[min(len(pts) - 1, i + 1)]
+        dx, dy = bx - ax, by - ay
+        n = math.hypot(dx, dy) or 1.0
+        nx, ny = dy / n, -dx / n
+        if nx * toward[0] + ny * toward[1] < 0:
+            nx, ny = -nx, -ny
+        wi = w * math.sin(math.pi * ls[i] / ls[-1])
+        outer.append((x + nx * wi, y + ny * wi))
+    if span == (0.0, 1.0):
+        L.poly(list(pts) + outer[::-1], c)
+    else:
+        L.line([p for p, s in zip(outer, ls) if span[0] <= s / ls[-1] <= span[1]], c)
+
+
 def _sprite(L, x0, y0, rows, key):
     """Stamps a small hand-laid pixel map: one character per pixel, '.' is left alone."""
     for j, row in enumerate(rows):
         for i, ch in enumerate(row):
             if ch != "." and ch in key:
                 L.px(x0 + i, y0 + j, key[ch])
+
+
+def _dz(x, y, level):
+    """Ordered dither anchored to the layer canvas (x + OX, y + OY), like every other layer, so
+    the player's dithers stay in phase with the street behind it."""
+    return dith(x + OX, y + OY, level)
+
+
+def _vnoise(x, y, cell, seed):
+    """Coherent value noise read per pixel: hashed values on a `cell` px grid, blended with a
+    smoothstep, so thresholded marks are soft blobs with 1 px stepped edges, never blocks."""
+    gx, gy = x / float(cell), y / float(cell)
+    ix, iy = int(math.floor(gx)), int(math.floor(gy))
+    fx, fy = gx - ix, gy - iy
+    fx, fy = fx * fx * (3 - 2 * fx), fy * fy * (3 - 2 * fy)
+    a, b = hsh(ix, iy, seed), hsh(ix + 1, iy, seed)
+    c, d = hsh(ix, iy + 1, seed), hsh(ix + 1, iy + 1, seed)
+    top, bot = a + (b - a) * fx, c + (d - c) * fx
+    return top + (bot - top) * fy
+
+
+def _despeckle(L, x0, y0, x1, y1, names, passes=2):
+    """Clusters, not salt and pepper: a pixel of one of `names` with no 8-neighbour of its own
+    colour takes the most common colour around it (ties go to the earlier palette entry)."""
+    rev = {P.rgb(n): n for n in P.NAMES}
+    for _ in range(passes):
+        arr = np.array(L.im)
+        changes = []
+        for y in range(y0, y1 + 1):
+            for x in range(x0, x1 + 1):
+                X, Y = x + OX, y + OY
+                if not (1 <= X < W - 1 and 1 <= Y < H - 1) or arr[Y, X, 3] == 0:
+                    continue
+                cur = rev.get(tuple(int(v) for v in arr[Y, X, :3]))
+                if cur not in names:
+                    continue
+                count = {}
+                alone = True
+                for dy in (-1, 0, 1):
+                    for dx in (-1, 0, 1):
+                        if dx == 0 and dy == 0:
+                            continue
+                        p = arr[Y + dy, X + dx]
+                        if p[3] == 0:
+                            continue
+                        n = rev.get(tuple(int(v) for v in p[:3]))
+                        if n == cur:
+                            alone = False
+                            break
+                        count[n] = count.get(n, 0) + 1
+                    if not alone:
+                        break
+                if alone and count:
+                    best = sorted(count.items(), key=lambda kv: (-kv[1], P.IDX[kv[0]]))[0][0]
+                    changes.append((x, y, best))
+        for x, y, n in changes:
+            L.px(x, y, n)
 
 
 # ---------------------------------------------------------------- figure geometry
@@ -136,15 +218,17 @@ def chevron_y(x):
 def _legs(rng):
     """Dark trousers: a big rounded seat, the left thigh under it, the right leg with its lit
     outer contour, and a wedge of street between the legs right of the STATS icon. The cloth
-    is mottled BROWN_DARK on BROWN_BLACK, denser where a form turns up toward the light."""
+    is BROWN_BLACK with soft BROWN_DARK light where a form turns up toward the sun (coherent
+    noise read per pixel, so the marks are blobs on the 1 px grid), curved fold ridges and INK
+    creases, and a RIM line down the sunward leg."""
     L = Layer()
     L.poly([(-60, 486), (84, 486), (85, 520), (87, 560), (89, 640), (-60, 640)], "BROWN_BLACK")
     gap = [(53, 543), (56, 560), (61, 584), (66, 640), (44, 640), (47, 584), (50, 560)]
     _clear_poly(L, gap)
 
     # rounded forms, each lit on its upper right: the seat, the left thigh, the right leg
-    forms = [(28, 508, 46, 26, 1.0), (14, 566, 34, 26, 0.7), (70, 540, 15, 44, 0.75),
-             (-30, 540, 22, 40, 0.4), (72, 604, 12, 34, 0.5), (16, 616, 28, 26, 0.45)]
+    forms = [(28, 508, 46, 26, 1.0), (14, 566, 34, 26, 0.85), (72, 546, 15, 44, 0.85),
+             (-30, 540, 22, 40, 0.4), (74, 604, 12, 34, 0.55), (16, 616, 28, 26, 0.5)]
 
     def form_shade(x, y, c):
         if c != "BROWN_BLACK":
@@ -158,69 +242,131 @@ def _legs(rng):
             lit = max(lit, k * (1.0 - r) * (0.5 + 0.9 * max(0.0, (u - v) * 0.5)))
         if lit <= 0.0:
             return None
-        n = hsh(x // 2, (y + (x // 2) % 2) // 2, 41)
-        val = lit + (n - 0.5) * 0.4
-        if val > 0.95 and hsh(x, y, 44) < 0.35:
+        # worn cloth: a fine weave of soft blobs over a broad swell, both read per pixel
+        n = 0.7 * _vnoise(x, y, 3, 41) + 0.3 * _vnoise(x, y, 7, 42)
+        val = lit * 1.1 + (n - 0.5) * 0.4
+        if val > 0.98 and _vnoise(x, y, 2, 44) > 0.55:
             return "BROWN"
-        if val > 0.56:
+        if val > 0.52:
             return "BROWN_DARK"
         return None
     L.recolour(-60, 486, 92, 640, form_shade)
+    # the gloved hand shades the thigh beside it, so the dark glove reads against dark cloth
+    L.recolour(72, 506, 92, 548, lambda x, y, c: "BROWN_BLACK" if c == "BROWN_DARK" and
+               ((x - 82) / 9.0) ** 2 + ((y - 526) / 20.0) ** 2 < 1.0 else None)
 
-    # creases: INK valleys with a CHARCOAL lip on their upper side, curving round the forms
-    creases = [
-        ([(-24, 528), (-6, 536), (14, 540), (34, 540), (50, 536)], 1),   # under the seat
-        ([(56, 528), (62, 536), (72, 540), (82, 536)], 1),
-        ([(-8, 588), (6, 592), (20, 592), (34, 588)], 0),               # behind the knee
-        ([(8, 494), (12, 506), (13, 518)], 1),
-        ([(60, 500), (63, 512), (64, 524)], 1),
-        ([(66, 566), (68, 590), (72, 620)], 1),
-        ([(-30, 514), (-26, 540), (-22, 566)], 0),
-        ([(30, 604), (34, 624), (36, 640)], 0),
+    # fold ridges: tapered BROWN_DARK crescents lit on the side facing the sun, with a BROWN
+    # crest along their middle. They run on the diagonal (the cloth pulled from the seam up
+    # round the seat, across the thigh, down the right leg), so no crest lies flat for long.
+    ridges = [
+        (_bez((47, 528), (36, 513), (17, 506), 12), 3, 1),        # seam up round the seat
+        (_bez((56, 517), (50, 503), (38, 494), 10), 2, 1),        # the seat turning to the hip
+        (_bez((28, 562), (14, 556), (-4, 546), 12), 3, 1),        # left thigh, below the icon
+        (_bez((24, 584), (12, 574), (-2, 568), 10), 2, 0),
+        (_bez((68, 530), (72, 548), (74, 568), 10), 2, 1),        # right leg, under the holster
+        (_bez((78, 542), (82, 560), (82, 586), 10), 2, 1),
     ]
-    for pts, lit in creases:
-        L.line([(round(x), round(y)) for x, y in pts], "INK")
-        L.line([(round(x), round(y) - 1) for x, y in pts[1:-1]], "CHARCOAL")
-        if lit:
-            L.line([(round(x) + 1, round(y) - 2) for x, y in pts[1:-1]], "BROWN_DARK")
+    for pts, w, crest in ridges:
+        _crescent(L, pts, w, "BROWN_DARK")
+        if crest:
+            _crescent(L, pts, w, "BROWN", span=(0.3, 0.7))
+    # creases: INK valleys, each a curve on the diagonal or round a form, with a CHARCOAL lip
+    # on the side away from the light
+    creases = [
+        (_bez((50, 537), (26, 546), (-8, 528), 14), 1),           # under the seat, round it
+        (_bez((34, 580), (16, 584), (-6, 592), 10), 0),           # toward the knee
+        (_bez((8, 494), (13, 506), (12, 520), 8), 0),             # down the left of the seat
+        (_bez((46, 530), (26, 523), (6, 508), 10), 1),            # a pull round the seat
+        (_bez((60, 526), (64, 540), (64, 558), 8), 1),
+        (_bez((66, 572), (68, 590), (72, 620), 8), 1),
+    ]
+    for pts, lip in creases:
+        ip = [(round(x), round(y)) for x, y in pts]
+        L.line(ip, "INK")
+        if lip:
+            L.line([(x, y + 1) for x, y in ip[2:-2]], "CHARCOAL")
     # the seam where the legs part, running down from the seat into the gap
     L.line([(50, 510), (51, 526), (52, 543)], "INK")
     L.line([(49, 516), (50, 540)], "CHARCOAL")
+    _despeckle(L, -60, 486, 92, 640, ("BROWN_DARK", "BROWN", "CHARCOAL"))
     # the seat's upper edge catches light just under the belt
     for x in range(8, 84):
         y = int(round(488 + (x + 40) * 2.0 / 118.0)) + 1
-        if L.get(x, y)[3] and hsh(x // 2, 7) < 0.3 + x / 150.0:
+        if L.get(x, y)[3] and hsh(x // 3, 7) < 0.3 + x / 150.0:
             L.px(x, y, "OCHRE" if x > 40 else "LEATHER")
     # the left leg's inner edge faces the lit gap: RIM with OCHRE inside
     _rim_right(L, 546, 640, ("RIM", "OCHRE"), xmin=30, xmax=52)
-    # the right leg's outer contour
-    _rim_right(L, 522, 640, ("OCHRE", None), xmin=70)
+    # the right leg's outer contour takes the sun all the way down
+    _rim_right(L, 518, 640, ("RIM", "OCHRE"), xmin=70)
     return L
 
 
+# the gloved right fist hanging beside the thigh, seen from behind, in near-black warm leather:
+# a flared gauntlet whose stitched hem shows under the last button, the back of the hand
+# BROWN_BLACK with a BROWN_DARK sheen turning to the sun and BROWN on the knuckles, the thumb
+# pressed in on the left, then four curled fingers under an INK knuckle crease. The right-hand
+# edge catches the sun (RIM, OCHRE inside).
+# K INK, b BROWN_BLACK, d BROWN_DARK, B BROWN, L LEATHER, O OCHRE, R RIM
+_FIST_X, _FIST_Y = 78, 500
+_FIST = [
+    "..KbbbbbbbbbbddddBOK",   # 500  gauntlet, hidden under OUTLAWS
+    "..KbbbbbbbbbbddddBOK",
+    "..KbbbbbbbbbbddddBOK",
+    "..KbbbbbbbbbbddddBOK",
+    "..KbbbbbbbbbbddddBOK",
+    "..KbbbbbbbbbbddddBOK",
+    "..KbbbbbbbbbbdddBORK",
+    "..KbbbbbbbbbbdddBORK",
+    "..KbbbbbbbbbbdddBORK",
+    "..KbbbbbbbbbbdddBORK",
+    "..KbbbbbbbbbbdddBORK",
+    "..KbbbbbbbbbbdddBORK",   # 511  last row under the button
+    "..KbbbbbbbbbddddBORK",   # 512  the flare shows below it
+    "..KbbbbbbbbddddBBORK",
+    "...KbbbbbbbddddBBORK",
+    "...KbbbbbbddddBBBOK.",
+    "....KbbbbbbddddBBORK",
+    "....KBBBBBBBBBBBLLOK",   # 517  stitched leather hem, lit toward the sun
+    "....KKKKKKKKKKKKKKK.",
+    ".....KbbbbbbddddBRK.",   # 519  the wrist
+    "....KbbbbbbdddddBORK",
+    "...KbbbbbbdddddBBORK",
+    "..KbbKbbbbddddBBBORK",   # 522  the thumb, pressed in on the left
+    ".KbbdKbbbdddddBBBORK",
+    ".KbbdKbbbddddBBBBORK",
+    ".KbbdKbbbddddBBBBORK",
+    ".KbbbdKbbdddddBBBORK",
+    ".KbbbdKbbddddBBBBORK",
+    "..KbbbKbbdddBBBBBORK",
+    "..KbbbKbbdddBBBBORK.",
+    "...KbbKKKKKKKKKKKRK.",   # 530  knuckle crease
+    "...KbbKbBBKdBBKBBOK.",   # 531  four curled fingers, lit on the knuckles
+    "....KbKbdBKbdBKdBBOK",
+    "....KKKbbdKbddKdBBOK",
+    ".....KKbbdKbbdKdBBOK",
+    "......KbbdKbbdKddBOK",
+    "......KbbdKbbdKddBK.",
+    "......KbbKKbbKKdBK..",
+    ".......KKK.KKK.KK...",   # 538  finger tips
+]
+_FIST_KEY = {"K": "INK", "b": "BROWN_BLACK", "d": "BROWN_DARK", "B": "BROWN", "L": "LEATHER",
+             "O": "OCHRE", "R": "RIM"}
+
+
 def _arm(rng):
-    """Right arm hanging past the poncho, mostly behind the title buttons: a dark sleeve and
-    a gloved fist whose knuckles show under the last button."""
+    """Right arm hanging past the poncho, mostly behind the title buttons: a dark sleeve out to
+    the elbow and back in to the hip, then the gloved fist, which hangs clear under the last
+    button beside the holster."""
     L = Layer()
-    L.poly([(82, 392), (97, 396), (102, 444), (104, 492), (89, 496), (85, 452), (80, 412)], "BROWN_DARK")
-    L.line([(91, 404), (96, 488)], "BROWN_BLACK")
-    L.line([(86, 444), (89, 490)], "BROWN_BLACK")
-    L.line([(88, 472), (102, 468)], "BROWN_BLACK")      # cuff
-    # gauntlet cuff, then the fist: dark leather, BROWN_DARK where it turns to the light
-    L.poly([(87, 490), (104, 486), (106, 498), (89, 502)], "BROWN_DARK")
-    L.line([(88, 493), (105, 489)], "INK")
-    L.poly([(88, 502), (105, 498), (107, 510), (106, 526), (102, 533), (92, 533), (88, 520)],
-           "BROWN_BLACK")
-    L.recolour(95, 498, 107, 533, lambda x, y, c: "BROWN_DARK" if c == "BROWN_BLACK" and x > 98 and y < 524 else None)
-    for x0 in (91, 96, 101):                              # curled fingers, INK between them
-        L.line([(x0 + 4, 524), (x0 + 4, 532)], "INK")
-        L.hline(x0, x0 + 2, 525, "BROWN_DARK")
-        L.px(x0 + 1, 526, "BROWN_DARK")
-        L.px(x0 + 1, 524, "OCHRE")                        # knuckle glints
-    L.px(104, 523, "OCHRE")
-    L.line([(89, 520), (104, 522)], "INK")
-    L.line([(91, 504), (91, 518)], "INK")              # thumb
-    _rim_right(L, 396, 532, ("RIM", "OCHRE"))
+    L.poly([(82, 392), (97, 396), (102, 424), (103, 452), (98, 482), (96, 504), (80, 506),
+            (84, 480), (86, 450), (80, 412)], "BROWN_DARK")
+    L.line([(91, 404), (95, 452), (90, 500)], "BROWN_BLACK")
+    L.line([(86, 446), (84, 498)], "BROWN_BLACK")
+    L.line([(88, 470), (100, 468)], "BROWN_BLACK")      # the rolled sleeve at the elbow
+    _rim_right(L, 396, 506, ("RIM", "OCHRE"))
+    F = Layer()
+    _sprite(F, _FIST_X, _FIST_Y, _FIST, _FIST_KEY)
+    _merge(L, F)
     return L
 
 
@@ -240,7 +386,7 @@ def _torso():
             lv = k * max(0.0, 1.0 - float(d) / 3.5)
             if lv > 0.55:
                 return "BROWN_DARK"
-            if lv > 0.15 and dith(x, y, lv):
+            if lv > 0.15 and _dz(x, y, lv):
                 return "BROWN_DARK"
         return None
     L.recolour(-60, 396, 98, 490, shade)
@@ -277,65 +423,89 @@ def _belt():
     return L
 
 
-# the revolver, seated grip-up: a dark gunmetal grip hooking up and back with a SILVER
-# backstrap and a GOLD screw, the hammer spur, the frame and trigger guard, a fluted cylinder
-# lit down its right side, then the barrel into the holster.
-# K INK, C CHARCOAL, G GREY_DARK, S SILVER, R RIM, g GOLD
-_GUN = [
-    "..KKKK............",   # 459  butt
-    ".KCSSSK...........",
-    "KCCGSSSK..........",
-    "KCCCCGSK..........",
-    "KCCCCgGSK.........",
-    ".KCCCCGSK.........",
-    ".KCCCCCGSK........",
-    "..KCCCCGSK........",
-    "..KCCCCCGSK.......",
-    "...KCCCgGSK.......",
-    "...KCCCCCGSK......",
-    "....KCCCCGSK......",
-    "....KCCCCCGSKK....",
-    ".....KCCCCGSSSK...",   # hammer spur
-    ".....KCCCCKGSGK...",
-    "....KKKCCKGGGSK...",   # frame
-    "...KGGKKKGGSSGSK..",
-    "...KGK.KCGSSGCSRK.",   # cylinder: dark flutes, two bright lands, RIM on the sun side
-    "...KGK.KCGSSGCSRK.",
-    "...KGKKKCGSSGCSRK.",
-    "....KGGKCGSSGCSRK.",
-    ".....KKKCCGSGCGRK.",
-    ".......KCCGSGCGRK.",
-    ".......KCGSSGCSRK.",
-    ".......KCGSSGCSRK.",
-    ".......KCCGGCCGRK.",
-    "........KCGSSRK...",   # barrel and ejector rod
-    "........KCGSSRK...",
-    "........KCGSGRK...",
-    "........KCGSGRK...",
-    "........KCGSGRK...",
-    "........KCGSGRK...",
-    "........KCGSGRK...",
-    "........KCGSGRK...",
+# the revolver, seated muzzle-down: a short dark bird's-head grip curling up and back over the
+# belt, the hammer spur, the silver frame, a fluted cylinder lit down its sun side, then the
+# long barrel and ejector rod running straight down the holster.
+# K INK, C CHARCOAL, G GREY_DARK, g GREY, S SILVER, R RIM
+_GUN_X, _GUN_Y = 53, 462
+_GUN_TOP = [
+    "...KKKK..........",   # 462  the rounded butt of the bird's-head grip
+    "..KCGggK.........",
+    ".KCCCGggK........",
+    "KCCCCCGgK........",
+    "KCCCCCCGgK.......",
+    ".KCCCCCCGgK......",
+    "..KKCCCCCGgK.....",   # 468  the beak tucks in under the butt
+    "....KCCCCCGgK....",
+    ".....KCCCCCGK....",
+    ".....KCCCCCGKKK..",   # 471  hammer spur
+    "......KCCCCGKgGK.",
+    "......KCCCCKGGK..",
+    ".....KKKKKKKKGK..",   # 474  frame
+    "....KGgSSSSggGK..",
+    "...KKGggSSgggGCK.",
+    "...K.KCGSgGCGSRK.",   # 477  trigger guard loop, fluted cylinder
+    "...KKKCGSgGCGSRK.",
+    "....KCCGSgGCGSRK.",
+    "....KCCGSgGCGSRK.",
+    "....KCCGSgGCGSRK.",
+    "....KCCGSgGCGSRK.",
+    "....KCCGSgGCGSRK.",
+    "....KCCGSgGCGSRK.",
+    "....KCCGSgGCGSRK.",
+    ".....KKGSgGCGRK..",   # 486  front of the frame
 ]
-_GUN_KEY = {"K": "INK", "C": "CHARCOAL", "G": "GREY_DARK", "S": "SILVER", "R": "RIM", "g": "GOLD"}
+_GUN_KEY = {"K": "INK", "C": "CHARCOAL", "G": "GREY_DARK", "g": "GREY", "S": "SILVER", "R": "RIM"}
+_BARREL = "KCGSgRK"            # shadow, ejector rod, bright land, barrel, sun edge
+_BARREL_X = _GUN_X + 7         # one straight column of stripes, x 60..66
+_BARREL_ROWS = (487, 517)      # the muzzle and front sight at the bottom
 
 
 def _holster_and_gun():
     L = Layer()
-    _sprite(L, 58, 459, _GUN, _GUN_KEY)
-    # the holster on the right hip, drawn over the barrel: dark leather with a BROWN sheen
-    # toward the sun, a LEATHER lip at the mouth, a RIM edge and its own INK outline
+    # the holster on the right hip, behind the gun: tan LEATHER turning to OCHRE toward the
+    # sun, a BROWN shaded left side with a stitch line, a lit mouth, a RIM edge and its own
+    # INK outline, so it separates from the dark trousers. Its right edge, outline included,
+    # stays at x 74 or less, well clear of the OUTLAWS frame at x 78.
     H_ = Layer()
-    H_.poly([(65, 493), (83, 490), (85, 516), (81, 530), (74, 533), (69, 518)], "BROWN_BLACK")
-    H_.recolour(64, 490, 86, 534, lambda x, y, c: "BROWN_DARK" if x > 73 and not (x > 79 and y > 506 and dith(x, y, 0.5)) else None)
-    H_.recolour(75, 495, 81, 526, lambda x, y, c: "BROWN" if x in (77, 78) and y % 4 != 3 else None)
-    H_.line([(65, 493), (83, 490)], "LEATHER")
-    H_.line([(66, 494), (83, 491)], "BROWN")
-    H_.line([(70, 505), (72, 522)], "INK")
-    H_.line([(71, 504), (73, 521)], "BROWN_DARK")
-    _rim_right(H_, 491, 530, ("RIM", "OCHRE"), xmin=64, xmax=87)
+    H_.poly([(56, 486), (72, 484), (73, 496), (73, 512), (72, 521), (69, 527), (64, 529),
+             (60, 525), (58, 513), (57, 498)], "LEATHER")
+    a = _alpha(H_)
+    rx = {}
+    for y in range(484, 530):
+        xs = np.nonzero(a[y + OY, :])[0]
+        if len(xs):
+            rx[y] = int(xs[-1]) - OX
+
+    def hol(x, y, c):
+        if c != "LEATHER":
+            return None
+        lx = 57 + max(0, y - 498) * 0.1               # the shaded left edge
+        if x < lx + 2:
+            return "BROWN"
+        if x < lx + 3.5:
+            return "BROWN_MID"
+        if x >= rx.get(y, 99) - 2:
+            return "OCHRE"
+        return None
+    H_.recolour(55, 484, 75, 530, hol)
+    H_.line([(58, 490), (59, 508), (62, 523)], "BROWN_DARK")     # stitching down the seam
+    H_.line([(56, 486), (72, 484)], "OCHRE")                      # the lit mouth
+    H_.line([(57, 487), (72, 485)], "BROWN")
+    _rim_right(H_, 486, 528, ("RIM", None), xmin=55, xmax=76)
     H_.outline("INK")
     _merge(L, H_)
+    # the gun on top: grip, frame and cylinder, then the straight barrel down the holster
+    G = Layer()
+    _sprite(G, _GUN_X, _GUN_Y, _GUN_TOP, _GUN_KEY)
+    y0, y1 = _BARREL_ROWS
+    for y in range(y0, y1 + 1):
+        for i, ch in enumerate(_BARREL):
+            G.px(_BARREL_X + i, y, _GUN_KEY[ch])
+    G.hline(_BARREL_X, _BARREL_X + len(_BARREL) - 1, y1 + 1, "INK")        # the muzzle
+    G.px(_BARREL_X + 1, y1 + 1, "GREY_DARK")
+    G.px(_BARREL_X + 2, y1 + 1, "GREY_DARK")
+    _merge(L, G)
     return L
 
 
@@ -449,21 +619,39 @@ def _poncho(rng):
         s += 0.8 * k * np.clip(1 - d2 / 5.0, 0, 1)
     # away from the sun the far left sinks into shadow
     s -= 0.3 * np.clip((0 - PXf) / 40.0, 0, 1)
-    # the one solid INK core, down the deepest fold; every other valley is dithered
+    # the one solid INK core, down the deepest fold; every other valley is solid NAVY
     core = _poly_dist(PXf, PYf, deep[2:-2]) < 0.8
 
+    def valley(x, y):
+        """How far (x, y) lies inside a fold valley (> 0 inside), read per pixel so valley
+        edges are clean stepped curves rather than a comb of stitches; the edge wanders in
+        2..4 px ticks along x."""
+        y = min(Y1, max(Y0, y))
+        return -0.72 - (s[y - Y0, x - X0] + 0.3 * (_vnoise(x + OX, 0, 3, 77) - 0.5))
+
     def knit(x, y, c):
-        """Value field to knit: INK in the valleys, TEAL_DARK body, TEAL on the ridges, with
-        the steps dithered through 1x2 vertical stitches (staggered column to column)."""
+        """Value field to knit: solid NAVY in the valleys (INK only down the deepest fold),
+        TEAL_DARK body, TEAL on the ridges, the body and ridge steps dithered through 1x2
+        vertical stitches (staggered column to column)."""
         if c != "TEAL_DARK":
             return None
         if core[y - Y0, x - X0]:
             return "INK"
-        v = s[y - Y0, x - X0]
-        # ordered 1x2 stitches: a 4x4 Bayer threshold over stitch cells staggered by column
-        t = (BAYER4[((y + (x % 2)) // 2) % 4, x % 4] + 0.5) / 16.0
-        if v < -0.45:
-            return "INK" if t < 0.15 + 0.75 * min(1.0, (-0.45 - v) / 0.55) else None
+        X, Y = x + OX, y + OY
+        # ordered 1x2 stitches: a 4x4 Bayer threshold over stitch cells staggered by column,
+        # anchored to the canvas like dith(); both pixels of a stitch (yt, yt + 1) read the
+        # value at its top pixel, so a stitch never splits into two colours
+        cell = (Y + (X % 2)) // 2
+        t = (BAYER4[cell % 4, X % 4] + 0.5) / 16.0
+        yt = min(Y1, max(Y0, 2 * cell - (X % 2) - OY))
+        dv = valley(x, y)
+        whole = min(valley(x, yt), valley(x, yt + 1))       # the whole stitch in the valley
+        if dv > 0:
+            # a few TEAL_DARK stitches stay near the valley edge, so the knit runs on through
+            return None if whole > 0 and t < 0.13 - 0.3 * whole else "NAVY"
+        if max(valley(x, yt), valley(x, yt + 1)) > 0:
+            return None                                     # half a stitch: leave it plain
+        v = max(-0.45, s[yt - Y0, x - X0])
         if v < 0.05:
             # the dark body: a sparse sprinkle of lit stitches keeps the knit alive
             return "TEAL" if t < 0.05 + 0.1 * (v + 0.45) / 0.5 else None
@@ -471,7 +659,7 @@ def _poncho(rng):
             return "TEAL" if t < 0.08 + 0.4 * (v - 0.05) / 0.65 else None
         # ridges: TEAL stitches, TEAL_LIGHT only on the sunlit right shoulder and edge
         if t < 0.55:
-            if x > 72 and v > 1.05 and dith(x, y, 0.4):
+            if x > 72 and v > 1.05 and _dz(x, yt, 0.4):
                 return "TEAL_LIGHT"
             return "TEAL"
         return None
@@ -616,14 +804,17 @@ def _fringe(rng):
 
 def _hair(rng):
     """Long curly hair under the brim: a near-black mass with ragged edges and locks hanging
-    onto the collar, combed through by wavy strands whose right-hand bends catch a C-shaped
-    BROWN_MID or RUST highlight; the sunward strands light up OCHRE and RIM."""
+    onto the collar. The shaded left two thirds carry only a few low BROWN_DARK curls (runs of
+    2 or 3 px); the sunward strands on the right light up OCHRE and RIM beside the ear."""
     L = Layer()
-    for y in range(312, 339):
-        xl = 28 + int(round(2.0 * math.sin(y * 0.55) + (hsh(y // 3, 51) - 0.5) * 3))
-        xr = 72 - (1 if y > 330 else 0) - (1 if y > 335 else 0)
+    for y in range(310, 339):
+        # ragged curls on both sides, the mass spreading a little as it falls onto the collar
+        xl = 25 + int(round(2.0 * math.sin(y * 0.55) + (hsh(y // 3, 51) - 0.5) * 3
+                            - max(0, y - 326) * 0.25))
+        xr = 65 + int(round(0.9 * math.sin(y * 0.7 + 2.0))) - (1 if 316 <= y <= 324 else 0)
         L.hline(xl, xr, y, "BROWN_BLACK")
-    locks = ((28, 35, 344), (39, 46, 341), (50, 58, 345), (62, 68, 341))
+    locks = ((22, 29, 343), (31, 38, 345), (41, 47, 341), (49, 56, 346), (58, 65, 342))
+    tips = []
     for (x0, x1, y1) in locks:
         for y in range(337, y1 + 1):
             t = (y - 337) / float(y1 - 337 + 1)
@@ -631,157 +822,150 @@ def _hair(rng):
             b = x1 - int(round(t * 4))
             if a <= b:
                 L.hline(a, b, y, "BROWN_BLACK")
-    # the shadow right under the brim and down the shaded left edge
-    L.recolour(20, 312, 75, 346, lambda x, y, c: "INK" if c == "BROWN_BLACK" and (
-        y < 315 or (x < 30 and dith(x, y, 0.5)) or (y > 340 and dith(x, y, 0.5))) else None)
-    # wavy strands at uneven spacing, in two tiers (under the brim, and the locks on the
-    # collar); each is a short run whose right-hand bends catch the light
-    sx = 29.0
-    n = 0
-    while sx < 71:
-        for tier, (ya, yb) in enumerate(((315, 330), (325, 346))):
-            per = 7.0 + hsh(n, tier, 71) * 3.0
-            ph = hsh(n, tier, 72) * 6.28
-            y0 = ya + int(hsh(n, tier, 73) * 4)
-            y1 = yb - int(hsh(n, tier, 74) * 5)
-            x0 = int(sx) + tier * 2 - 1
-            lit_side = x0 >= 63
-            for y in range(y0, y1):
-                ang = 6.2832 * (y - y0) / per + ph
-                sn = math.sin(ang)
-                x = x0 + int(round(1.3 * sn))
-                if not L.get(x, y)[3]:
-                    continue
-                if lit_side:
-                    c = ("RIM" if sn > 0.8 and x0 >= 66 else "OCHRE") if sn > 0.35 else "BROWN"
-                elif sn > 0.5:
-                    c = "BROWN_MID" if x0 >= 38 else "RUST"
-                    if math.cos(ang) > 0.5:
-                        c = "BROWN" if x0 >= 38 else "BROWN_MID"
-                elif sn > -0.4:
-                    c = "BROWN_DARK"
-                else:
-                    continue
-                L.px(x, y, c)
-        sx += 4 + hsh(n, 75) * 3
-        n += 1
-    # sunlit strands down the right-hand edge of the mass
+                if y >= y1 - 2 - int(hsh(x0, 52) * 2):
+                    tips.append((a, b, y))
+    # the shadow right under the brim and down the shaded left edge: solid INK up to a column
+    # that wanders with the curls, and solid INK points on the lock tips
+    def edge(y):
+        return 27 + int(round(1.5 * math.sin(y * 0.4 + 1.0) + (hsh(y // 4, 53) - 0.5) * 2))
+    L.recolour(18, 310, 70, 346, lambda x, y, c: "INK" if c == "BROWN_BLACK" and (
+        y < 314 or x <= edge(y)) else None)
+    for (a, b, y) in tips:
+        L.hline(a, b, y, "INK")
+    # low curls in the shade: short C-shaped BROWN_DARK runs, stacked so every mark is 2+ px
+    for n, (cx, cy) in enumerate(((31, 318), (37, 326), (43, 317), (48, 331), (52, 321),
+                                  (40, 338), (29, 330), (51, 339))):
+        h = 3 if hsh(n, 54) < 0.5 else 2
+        L.vline(cx, cy, cy + h - 1, "BROWN_DARK")
+        L.px(cx + 1, cy + h, "BROWN_DARK")
+        L.px(cx + 1, cy + h + 1, "BROWN_DARK")
+    # sunward strands down the right of the mass: wavy runs that catch OCHRE, RIM at the bends
+    for k, x0 in enumerate((56, 59, 62)):
+        for y in range(314 + k, 341 - k):
+            x = x0 + int(round(1.2 * math.sin((y - 312) * 0.55 + k * 1.7)))
+            if not L.get(x, y)[3] or L.is_(x, y, "INK"):
+                continue
+            ph = ((y - 312) // 3 + k) % 3
+            if ph == 2:
+                continue
+            c = "OCHRE" if x0 >= 59 else "BROWN"
+            if ph == 0 and x0 == 62:
+                c = "RIM"
+            L.px(x, y, c)
     for y in range(315, 342):
-        x = 70 + int(round(math.sin((y - 312) * 0.7) * 1.2)) - (1 if y > 331 else 0) - (1 if y > 336 else 0)
-        if (y // 3) % 3 != 2 and L.get(x, y)[3]:
+        x = 64 - (1 if y > 331 else 0) - (1 if y > 336 else 0)
+        if L.get(x, y)[3] and (y // 3) % 3 != 2:
             L.px(x, y, "OCHRE")
-            if (y // 3) % 3 == 0 and L.get(x + 1, y)[3]:
-                L.px(x + 1, y, "RIM")
     # the ear and cheek of a head turned slightly right, just past the right-hand locks
-    for (x, y) in [(71, 318), (72, 318), (71, 319), (72, 319), (73, 319), (72, 320), (73, 320),
-                   (72, 321), (73, 321), (72, 322), (73, 322), (72, 323)]:
+    for (x, y) in [(64, 318), (65, 318), (64, 319), (65, 319), (66, 319), (65, 320), (66, 320),
+                   (65, 321), (66, 321), (65, 322), (66, 322), (65, 323)]:
         L.px(x, y, "SKIN_DEEP")
-    L.px(73, 320, "SKIN_DARK")
-    L.px(73, 321, "SKIN_DARK")
+    L.px(66, 320, "SKIN_DARK")
+    L.px(66, 321, "SKIN_DARK")
+    _despeckle(L, 18, 310, 70, 346, ("BROWN_DARK", "BROWN", "OCHRE", "RIM"))
     return L
-
-
-def _felt(x, y, seed):
-    """Felt texture: warm BROWN_BLACK felt with 2 px CHARCOAL flecks (about a quarter)."""
-    return hsh(x // 2, y, seed) < 0.74
 
 
 def _hat(rng):
     L = Layer()
-    # brim: the near edge droops to its lowest point near x 36, its far upper surface shows
-    # as a sliver on the left, and the right tip curls up into the sun just short of PLAY
-    upper = [(3, 311), (4, 306), (7, 302), (12, 299), (19, 297), (30, 296), (72, 299), (78, 300),
-             (83, 300), (89, 299), (94, 297), (97, 296), (99, 297), (99, 300)]
-    lower = [(97, 302), (94, 304), (89, 307), (80, 311), (70, 314), (58, 316), (46, 318),
-             (36, 318), (26, 317), (17, 316), (10, 315), (5, 313), (3, 311)]
-    L.poly(upper + lower, "CHARCOAL")
+    # brim: the near edge droops to its lowest point left of centre, its far upper surface
+    # shows as a sliver on the left, and the right tip curls up into the sun short of PLAY,
+    # clear of the lantern above it and of the wagon to the right
+    upper = [(2, 306), (4, 302), (8, 299), (14, 297), (22, 296), (30, 296), (66, 298), (72, 298),
+             (77, 297), (80, 296), (82, 294), (84, 293), (84, 295)]
+    lower = [(84, 296), (82, 298), (78, 301), (73, 304), (66, 307), (56, 310), (46, 312),
+             (38, 314), (30, 314), (22, 313), (14, 312), (8, 310), (4, 308), (2, 306)]
+    L.poly(upper + lower, "BROWN_BLACK")
 
     def near_y(x):
         return _lerp_pts(lower[::-1], x)
 
-    def brim(x, y, c):
-        if c != "CHARCOAL":
-            return None
-        ny = near_y(x)
-        if y >= ny - 1:
-            return "INK"                       # underside and thickness of the near edge
-        if y >= ny - 4 and 8 < x < 76:
-            return "BROWN_BLACK"
-        # the far upper surface, a SHADOW sliver close to the crown
-        if y <= 300 and 9 < x < 30 and dith(x, y, 0.2 + (300 - y) / 10.0):
-            return "SHADOW"
-        return "BROWN_BLACK" if _felt(x, y, 5) or (x < 20 and dith(x, y, 0.5)) else None
-    L.recolour(2, 290, 100, 320, brim)
-    L.recolour(64, 294, 99, 310, lambda x, y, c: "BROWN_DARK" if c in ("CHARCOAL", "BROWN_BLACK") and
-               hsh(x // 2, y, 23) < 0.12 and y < near_y(x) - 2 else None)
-    # a lit lip along the upper-left edge (dull) and the sunward right edge (bright)
-    for x in range(4, 100):
-        for y in range(290, 320):
-            if L.get(x, y)[3]:
-                if x > 72:
-                    L.px(x, y, "RIM")
-                    L.px(x, y + 1, "OCHRE")
-                elif x > 60:
-                    L.px(x, y, "OCHRE")
-                elif x < 28:
-                    # the far edge picks up a dull, broken glint from the sky
-                    L.px(x, y, "LEATHER" if x % 3 == 0 else ("BROWN" if x % 3 == 1 else "SHADOW"))
-                break
-    L.px(99, 299, "RIM")
-    L.px(98, 301, "OCHRE")
-    L.px(97, 302, "RIM")
-    L.px(96, 302, "OCHRE")
+    # the underside and thickness of the near edge, with a dull lit lip along its front
+    L.recolour(0, 290, 90, 320, lambda x, y, c: "INK" if y >= near_y(x) - 1 else None)
+    for x in range(6, 64):
+        y = int(math.ceil(near_y(x) - 1)) - 1
+        if L.is_(x, y, "BROWN_BLACK"):
+            L.px(x, y, "BROWN" if x > 44 else "BROWN_DARK")
+    # a soft BROWN_DARK sheen where the sunward brim turns up to the light
+    L.recolour(58, 292, 86, 312, lambda x, y, c: "BROWN_DARK" if c == "BROWN_BLACK" and
+               y < near_y(x) - 2 and _vnoise(x, y, 4, 23) + (x - 58) / 60.0 > 0.95 else None)
+    # the lit lip: a dull far edge on the left in runs of LEATHER and BROWN with a solid
+    # SHADOW sliver of sky under it, OCHRE on top toward the crown, the sunward edge bright
+    for x in range(2, 88):
+        ys = [y for y in range(288, 320) if L.get(x, y)[3]]
+        if not ys:
+            continue
+        y = ys[0]
+        if x > 72:
+            L.px(x, y, "RIM")
+            L.px(x, y + 1, "OCHRE")
+        elif x > 60:
+            L.px(x, y, "OCHRE")
+        elif x < 28:
+            seg = x // 4
+            if hsh(seg, 24) < 0.12 and x % 4 < 2:
+                L.px(x, y, "SHADOW")
+            else:
+                L.px(x, y, "LEATHER" if hsh(seg, 25) < 0.55 else "BROWN")
+            if 8 < x < 26 and L.is_(x, y + 1, "BROWN_BLACK") and y + 1 < near_y(x) - 2:
+                L.px(x, y + 1, "SHADOW")
+    L.vline(84, 293, 296, "RIM")                 # the curled tip, end on to the sun
+    L.px(83, 296, "OCHRE")
+    L.px(82, 297, "OCHRE")
 
-    # crown: tapering sides, a broad rounded shoulder on the left, a flat top with a pinch
+    # crown: tapering sides, a broad rounded shoulder on the left, a flat top with a pinch;
+    # solid warm-black felt with one BROWN_DARK sheen on the sunward top
     crown = Layer()
-    crown.poly([(30, 305), (31, 296), (33, 290), (35, 286), (38, 282), (42, 280), (48, 279),
-                (58, 279), (66, 278), (70, 279), (73, 281), (75, 285), (76, 292), (76, 305)],
-               "CHARCOAL")
-    crown.recolour(28, 276, 78, 306, lambda x, y, c: "BROWN_BLACK" if c == "CHARCOAL" and (
-        _felt(x, y, 7) or (x < 36 and dith(x, y, 0.5))) else None)
-    # worn felt catching a little light on the sunward half: sparse 2 px BROWN_DARK flecks
-    crown.recolour(46, 276, 76, 297, lambda x, y, c: "BROWN_DARK" if c in ("CHARCOAL", "BROWN_BLACK") and
-                   hsh(x // 2, y, 21) < 0.06 + (x - 46) / 200.0 else None)
+    crown.poly([(27, 305), (28, 296), (30, 290), (32, 286), (35, 282), (39, 280), (45, 279),
+                (55, 279), (61, 278), (64, 279), (66, 281), (67, 285), (67, 292), (67, 305)],
+               "BROWN_BLACK")
+    crown.recolour(44, 278, 67, 297, lambda x, y, c: "BROWN_DARK" if c == "BROWN_BLACK" and
+                   ((x - 57) / 9.0) ** 2 + ((y - 287) / 6.0) ** 2 + (_vnoise(x, y, 3, 21) - 0.5) * 0.8 < 1.0
+                   else None)
     # the pinch: a soft crease across the top, and the side dimples
-    crown.line([(40, 284), (48, 285), (58, 285), (68, 283)], "SHADOW")
-    crown.line([(42, 285), (50, 286), (58, 286), (66, 285)], "INK")
-    crown.line([(35, 289), (34, 296)], "BROWN_BLACK")
-    crown.line([(71, 288), (72, 296)], "SHADOW")
+    crown.line([(37, 284), (45, 285), (54, 285), (62, 283)], "SHADOW")
+    crown.line([(39, 285), (46, 286), (54, 286), (60, 285)], "INK")
+    crown.line([(32, 289), (31, 296)], "INK")
+    crown.line([(62, 288), (63, 296)], "SHADOW")
     # band: leather segments (LEATHER and RUST alternating) with BROWN_BLACK seams, a dull
     # BROWN_MID top edge that warms toward the sun, BROWN and BROWN_DARK underneath
     seg = 0
-    for x in range(30, 77):
-        p = (x - 30) % 7
+    for x in range(27, 68):
+        p = (x - 27) % 7
         if p == 6:
             crown.vline(x, 298, 303, "BROWN_BLACK")
             seg += 1
             continue
         body = "RUST" if seg % 2 else "LEATHER"
-        top = "BROWN_MID" if x < 46 else ("OCHRE" if x < 60 else ("ORANGE" if x < 67 else "AMBER"))
+        top = "BROWN_MID" if x < 41 else ("OCHRE" if x < 53 else ("ORANGE" if x < 60 else "AMBER"))
         if p == 0:
             body = "BROWN"                      # the shaded left end of each segment
         crown.px(x, 298, top)
-        crown.px(x, 299, body if x < 60 or p == 0 else "OCHRE")
+        crown.px(x, 299, body if x < 53 or p == 0 else "OCHRE")
         crown.px(x, 300, body)
         crown.px(x, 301, body)
         crown.px(x, 302, "BROWN")
         crown.px(x, 303, "BROWN_DARK")
         crown.px(x, 304, "BROWN_BLACK")
-    _rim_right(crown, 279, 305, ("RIM", "OCHRE"), xmin=56)
-    _rim_top(crown, 50, 75, ("RIM", "OCHRE"), ymax=292)
-    _rim_top(crown, 34, 49, ("OCHRE", None), ymax=292)
-    for (x, y) in ((34, 287), (32, 291), (31, 295)):    # a broken glint down the left side
-        crown.px(x, y, "BROWN_MID")
-    for x in range(64, 71):
-        crown.px(x, 278, "RIM_HOT")
+    _rim_right(crown, 279, 305, ("RIM", "OCHRE"), xmin=52)
+    _rim_top(crown, 46, 66, ("RIM", "OCHRE"), ymax=292)
+    _rim_top(crown, 31, 45, ("OCHRE", None), ymax=292)
+    crown.line([(31, 290), (30, 293)], "BROWN")         # a dull glint down the shaded side
+    for x in range(55, 64):
+        ys = [y for y in range(276, 290) if crown.get(x, y)[3]]
+        if ys:
+            crown.px(x, ys[0], "RIM_HOT")
     _merge(L, crown)
+    _despeckle(L, 0, 276, 90, 316, ("BROWN_DARK", "SHADOW"))
     return L
 
 
 # ---------------------------------------------------------------- the whole figure
 def draw_player(rng):
-    """The player from behind, title framing: hat top at y 279, poncho over the shoulders,
-    fringe hanging to about y 505, gun on the right hip at x 58..84, legs to the bottom."""
+    """The player from behind, title framing: hat top at y 278 (crown x 27..67, brim x 2..84),
+    poncho over the shoulders, fringe hanging to about y 505, gun and holster on the right hip
+    at x 53..74, the fist below OUTLAWS, legs to the bottom. rng is unused: every mark comes
+    from hsh(), so the figure is the same on every build."""
     L = Layer()
     for part in (_legs(rng), _arm(rng), _torso(), _belt(), _holster_and_gun(), _poncho(rng),
                  _fringe(rng), _hair(rng), _hat(rng)):

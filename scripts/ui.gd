@@ -18,7 +18,6 @@ const FACES := {
 	"tiny": [8, 5], "body": [10, 7], "bold": [10, 7], "tall": [12, 9], "huge": [16, 13],
 	"tiny_ol": [8, 5], "body_ol": [10, 7], "bold_ol": [10, 7],
 }
-const TINY_SIZE := 8
 
 static var strings_seen := {}
 static var _fonts := {}
@@ -26,7 +25,6 @@ static var _fonts := {}
 var safe: Control           # the 270 x 584 play area, centred in the viewport
 var screens := {}           # name -> Control
 var title_buttons: Array[PixelButton] = []
-var sound_on := true
 
 
 # --- strings and fonts -------------------------------------------------------------------
@@ -197,6 +195,9 @@ func build_title() -> void:
 		cap.name = "Cap_" + spec[0]
 		cap.position = Vector2(clampi(spec[3] + 16 - cw / 2, COL_LEFT, COL_RIGHT - cw), 563)
 		root.add_child(cap)
+		# a thumb on the caption, or in the gap above it, taps the icon too
+		b.hit_extra = Rect2(cap.position.x - b.position.x, b.size.y, cw,
+				cap.position.y + font_size("body_ol") + 1 - b.position.y - b.size.y)
 
 
 ## The status line has a one-line slot; text too long for the body face drops to the tiny face.
@@ -212,7 +213,6 @@ func set_daily_status(text: String) -> void:
 
 
 func set_sound(on: bool) -> void:
-	sound_on = on
 	for b in title_buttons:
 		if b.id == "sound":
 			b.icon_rows = PixelButton.ICON_SOUND_ON if on else PixelButton.ICON_SOUND_OFF
@@ -304,38 +304,34 @@ class PixelButton extends BaseButton:
 	const STYLE_RED := "red"
 
 	# '#' cream, 'r' red. Every glyph gets a full ink outline, one extra ink row below it,
-	# and cream pixels with nothing under them turn cream shade.
+	# and cream pixels with nothing under them turn cream shade. icon_origin centres the whole
+	# inked box (outline and extra row included) in the 32 px square: the bars and the speaker
+	# (16 x 13) keep two columns and three rows of wood inside the groove, the '?' (12 x 15)
+	# four columns and two rows.
 	const ICON_STATS := [
-		".......rrr##.......",
-		".......rrrr#.......",
-		".......#rr##.......",
-		".......##r##.......",
-		".......#####..#####",
-		".......#####..#####",
-		".......#####..#####",
-		"#####..#####..#####",
-		"#####..#####..#####",
-		"#####..#####..#####",
-		"#####..#####..#####",
-		"#####..#####..#####",
-		"#####..#####..#####",
-		"#####..#####..#####",
-		"#####..#####..#####",
-		"#####..#####..#####",
-		"#####..#####..#####",
+		"......rrr#......",
+		"......rrrr......",
+		"......#rr#......",
+		"......#r##......",
+		"......####..####",
+		"......####..####",
+		"####..####..####",
+		"####..####..####",
+		"####..####..####",
+		"####..####..####",
+		"####..####..####",
+		"####..####..####",
+		"####..####..####",
 	]
 	const ICON_HOWTO := [
 		"...######...",
 		".##########.",
 		"####....####",
 		"###......###",
-		"###......###",
-		".........###",
 		"........####",
 		".......####.",
 		"......####..",
 		".....####...",
-		"....####....",
 		"....####....",
 		"....####....",
 		"............",
@@ -345,40 +341,34 @@ class PixelButton extends BaseButton:
 		".....##.....",
 	]
 	const ICON_SOUND_ON := [
-		"....................",
-		"........#......##...",
-		".......##.......##..",
-		"......###........##.",
-		".....####..##....##.",
-		"#########...##....##",
-		"#########....##...##",
-		"#########....##...##",
-		"#########....##...##",
-		"#########....##...##",
-		"#########...##....##",
-		".....####..##....##.",
-		"......###........##.",
-		".......##.......##..",
-		"........#......##...",
-		"....................",
+		"......#....##...",
+		".....##.....##..",
+		"....###......##.",
+		"....###......##.",
+		"#######..##...##",
+		"#######...##..##",
+		"#######...##..##",
+		"#######...##..##",
+		"#######..##...##",
+		"....###......##.",
+		"....###......##.",
+		".....##.....##..",
+		"......#....##...",
 	]
 	const ICON_SOUND_OFF := [
-		"....................",
-		"........#...........",
-		".......##...........",
-		"......###...........",
-		".....####...rr...rr.",
-		"#########...rrr.rrr.",
-		"#########....rrrrr..",
-		"#########.....rrr...",
-		"#########....rrrrr..",
-		"#########...rrr.rrr.",
-		"#########...rr...rr.",
-		".....####...........",
-		"......###...........",
-		".......##...........",
-		"........#...........",
-		"....................",
+		"......#.........",
+		".....##.........",
+		"....###.........",
+		"....###..rr...rr",
+		"#######..rrr.rrr",
+		"#######...rrrrr.",
+		"#######....rrr..",
+		"#######...rrrrr.",
+		"#######..rrr.rrr",
+		"....###..rr...rr",
+		"....###.........",
+		".....##.........",
+		"......#.........",
 	]
 
 	var id := ""
@@ -387,6 +377,7 @@ class PixelButton extends BaseButton:
 	var text_scale := 1
 	var face := "bold"
 	var icon_rows: Array = []
+	var hit_extra := Rect2()  # more tap area in local pixels, e.g. an icon's caption below it
 	var _panel := {}  # state key -> [ImageTexture, label baked into it]
 	var _prebake_due := false
 
@@ -402,6 +393,9 @@ class PixelButton extends BaseButton:
 		button_down.connect(queue_redraw)
 		button_up.connect(queue_redraw)
 
+	func _has_point(point: Vector2) -> bool:
+		return Rect2(Vector2.ZERO, size).has_point(point) or hit_extra.has_point(point)
+
 	func _key(down: bool) -> String:
 		return "%d %d %s %s %d" % [size.x, size.y, down, text, icon_rows.hash()]
 
@@ -415,16 +409,13 @@ class PixelButton extends BaseButton:
 			var img := GameUI.panel_image(w, h, style, down, id, span)
 			var shift := 1 if down else 0
 			if not icon_rows.is_empty():
-				GameUI.stamp_icon(img, icon_rows, (w - icon_rows[0].length()) / 2,
-						(h - icon_rows.size()) / 2 + shift)
+				var o := GameUI.icon_origin(w, h, icon_rows)
+				GameUI.stamp_icon(img, icon_rows, o.x, o.y + shift)
 			var baked := true
 			if text != "":
 				baked = GameUI.stamp_label(img, text, face, text_scale, shift)
 			_panel[key] = [PixelArt.texture(img), baked]
 		return _panel[key]
-
-	func _face_tex(down: bool) -> ImageTexture:
-		return _face(down)[0]
 
 	func _draw() -> void:
 		if size.x < 1 or size.y < 1:
@@ -664,6 +655,13 @@ static func stamp_label(img: Image, s: String, face: String, scale: int, shift: 
 	return true
 
 
+## Where stamp_icon puts `rows` so its inked box, from the outline row above to the extra
+## ink row below, sits centred in a w x h square.
+static func icon_origin(w: int, h: int, rows: Array) -> Vector2i:
+	var iw: int = String(rows[0]).length()
+	return Vector2i((w - iw - 2) / 2 + 1, (h - rows.size() - 3) / 2 + 1)
+
+
 ## Bakes an icon bitmap into img at (ox, oy) with the same outline treatment as the labels.
 static func stamp_icon(img: Image, rows: Array, ox: int, oy: int) -> void:
 	var P := PixelArt
@@ -686,8 +684,6 @@ static func stamp_icon(img: Image, rows: Array, ox: int, oy: int) -> void:
 			var col := P.CREAM
 			if ch == "r":
 				col = P.RED
-			elif ch == "s":
-				col = P.CREAM_SHADE
 			elif ry == ih - 1 or rx >= String(rows[ry + 1]).length() or String(rows[ry + 1])[rx] == ".":
 				col = P.CREAM_SHADE
 			P.px(img, ox + rx, oy + ry, P.c(col))
@@ -701,14 +697,19 @@ const OUTLINE := 2  # ink outline width of the wood and red signboards and icon 
 ## Wood, red, dark and inset signboards after the reference buttons. Wood and red buttons: a
 ## two-pixel ink silhouette with a square notch at each corner, two lit frame rings (brightest
 ## on the top and left) and a dark groove that all step round the notches, a diamond knob on
-## each notched corner, a planked fill with long grain strokes and a seam through the middle
-## (red paint darkens into the groove and toward the bottom), a crosshair at each end and a
-## bullet hole with short cracks between each crosshair and the label. `clear` is the label's
-## column span (label_span); the holes stay out of it. Icon squares get the same frame with
-## stepped diagonal corners and a plain fill. Dark and inset cards keep a one-pixel outline,
-## a diagonal chamfer and small nails. Drawn pixel by pixel at the exact size and seeded from
-## style, size and `variant`, so equal panels match; the pressed state only swaps the frame
-## light and moves the content down one pixel.
+## each notched corner, a planked fill with long grain strokes (dark ones often wine, light
+## ones brown or short rust streaks) and a seam out from each end (red paint: maroon with
+## blood and rust streaks high up, a lit row under the top groove, darkening into the groove
+## and toward the bottom), a crosshair at each end and a bullet hole with short cracks between
+## each crosshair and the label. `clear` is the label's column span (label_span); the holes
+## and the seam stop short of it, where a hole has no room there is only a crack, and on the
+## hole rows no grain runs between the frame and the label. Icon squares get the same frame
+## with 45 degree corners and a plain fill. Dark and inset cards keep a one-pixel outline, a
+## diagonal chamfer and small nails. Drawn pixel by pixel at the exact size and seeded from
+## style, size and `variant`, so equal panels match. Pressed, a button's top ring falls into
+## shadow and casts two rows of shadow over the face, the bottom ring catches the light, the
+## content moves down one pixel, red paint steps one shade darker and wood loses its light
+## strokes (its fill stays, so the holes and dark grain still show).
 static func panel_image(w: int, h: int, style: String, down := false, variant := "",
 		clear := Vector2i(-1, -1)) -> Image:
 	var P := PixelArt
@@ -716,16 +717,23 @@ static func panel_image(w: int, h: int, style: String, down := false, variant :=
 	var button := style == "wood" or style == "red"
 	var square := w <= 40 and h <= 40
 	var notch := 2 if button and not square else 0
-	var cham := 3 if square else 2
+	var cham := 5 if square else 2
 	var ol := OUTLINE if button else 1  # ink outline width
 	# ring 1 and ring 2 as [top and left, bottom and right]
 	var r1 := [P.SAND, P.TAN]
 	var r2 := [P.OCHRE, P.LEATHER]
 	var groove := P.BROWN_BLACK
 	var fill := P.BROWN_DARK
-	var edge := P.BROWN_DARK  # the first two fill rows inside the groove
+	var edge := P.BROWN_DARK  # the first fill row inside the groove
+	var lit := -1  # the top fill row inside the groove, when it catches the light
 	var grain := P.BROWN_BLACK
+	var grain_warm := P.WINE_DARK  # some dark strokes are redder, as in the reference wood
+	var warm_share := 0.6
 	var grain2 := P.BROWN
+	var grain3 := P.RUST  # a share of the light strokes, short and warmer
+	var hot_share := 0.7
+	var light_p := 0.35  # the share of strokes that are light
+	var low := P.BROWN_BLACK  # dark strokes low on red paint
 	var seam := P.BROWN_BLACK
 	var knob := P.SAND
 	var sight := [P.SAND, P.TAN]
@@ -734,22 +742,38 @@ static func panel_image(w: int, h: int, style: String, down := false, variant :=
 	match style:
 		"red":
 			r1 = [P.LAMP, P.AMBER]; r2 = [P.ORANGE, P.RUST]; groove = P.WINE_DARK
-			fill = P.BLOOD; edge = P.MAROON; grain = P.MAROON; grain2 = P.RED; seam = P.MAROON
+			fill = P.MAROON; edge = P.WINE; lit = P.RED; grain = P.WINE; grain_warm = P.WINE
+			grain2 = P.BLOOD; grain3 = P.RUST; hot_share = 0.7; light_p = 0.6
+			low = P.WINE_DARK; seam = P.WINE
 			knob = P.LAMP; sight = [P.LAMP, P.GOLD]
 		"dark":
 			r1 = [P.LEATHER, P.BROWN_DARK]; r2 = [P.BROWN, P.BROWN]; groove = P.INK
-			fill = P.CHARCOAL; edge = P.CHARCOAL; grain = P.INK; grain2 = P.PLUM; nail = P.OCHRE
-			sparse = true
+			fill = P.CHARCOAL; edge = P.CHARCOAL; grain = P.INK; grain_warm = P.INK
+			grain2 = P.PLUM; hot_share = 0.0; light_p = 0.3; nail = P.OCHRE; sparse = true
 		"inset":
 			r1 = [P.BROWN, P.BROWN_DARK]; r2 = [P.CHARCOAL, P.CHARCOAL]; groove = P.INK
-			fill = P.INK; edge = P.INK; grain = P.CHARCOAL; grain2 = P.CHARCOAL; sparse = true
+			fill = P.INK; edge = P.INK; grain = P.CHARCOAL; grain_warm = P.CHARCOAL
+			grain2 = P.CHARCOAL; hot_share = 0.0; light_p = 0.3; sparse = true
+	var c_none := -1  # a stroke colour that draws nothing
 	if down:
-		r1 = [r1[1], r1[0]]
+		r1 = [groove if button else r1[1], r1[0]]
 		r2 = [r2[1], r2[0]]
+		lit = -1
+		if style == "red":
+			# the paint steps one shade darker, and its darkest strokes stay wine, so the ink
+			# holes still stand out
+			fill = _darker(fill); edge = _darker(edge); grain = _darker(grain)
+			grain_warm = _darker(grain_warm); grain2 = _darker(grain2); grain3 = grain2
+			seam = _darker(seam)
+		elif button:
+			# the wood keeps its colour, so the holes and the dark grain still show, but loses
+			# its light strokes
+			grain2 = c_none; grain3 = c_none
 	var shift := 1 if down else 0
 	var cols := [P.c(P.INK), [P.c(r1[0]), P.c(r1[1])], [P.c(r2[0]), P.c(r2[1])], P.c(groove)]
 	var c_fill := P.c(fill)
 	var c_edge := P.c(edge)
+	var c_lit := P.c(lit) if lit >= 0 else c_edge
 	# silhouette and rings from the depth to the notched or chamfered edge; only the border
 	# band is walked pixel by pixel, the plain middle of the fill is one rectangle
 	var band := 5 + ol + notch
@@ -758,7 +782,6 @@ static func panel_image(w: int, h: int, style: String, down := false, variant :=
 	depth.fill(6)
 	if w > 2 * band and h > 2 * band:
 		img.fill_rect(Rect2i(band, band, w - 2 * band, h - 2 * band), c_fill)
-	var bayer: Array = P.BAYER4
 	for y in h:
 		var b := h - 1 - y
 		var inner := y >= band and b >= band and w > 2 * band
@@ -779,54 +802,101 @@ static func panel_image(w: int, h: int, style: String, down := false, variant :=
 			depth[y * w + x] = d
 			if d >= 0:
 				var col: Color
-				if d >= 6:
+				if d >= 5:
 					col = c_fill
-				elif d >= 4:
-					# the paint darkens into the groove: a solid row, then an ordered-dither row
-					col = c_edge if d == 4 or bayer[y & 3][x & 3] < 8 else c_fill
+				elif d == 4:
+					# the paint darkens into the groove in one solid row; red paint catches the
+					# light along the top instead
+					col = c_lit if y == 3 + ol else c_edge
 				elif d == 0 or d == 3:
 					col = cols[d]
 				else:
 					col = cols[d][0 if mini(x, y) <= mini(r, b) else 1]
 				img.set_pixel(x, y, col)
 			x += 1
+	if down and button:
+		# the frame casts a shadow two rows deep over the top of the sunken face
+		for y in [3 + ol, 4 + ol]:
+			_hline_on(img, depth, 0, w - 1, y, P.c(groove), 4)
+	# the holes sit between each crosshair (spokes to x 11 and w - 12) and the label, at least
+	# four pixels clear of the label's ink outline
+	var m := roundi(w * 0.15)
+	var left := Vector2i(13, clear.x - 5 if clear.x >= 0 else 2 * m - 13)
+	var right := Vector2i(clear.y + 5 if clear.y >= 0 else w - 1 - (2 * m - 13), w - 14)
+	var holed := button and not square and w >= 60
+	# on a hole's rows no grain or fleck runs from the frame past the crosshair and the hole to
+	# the label, so a dark stroke never links sight, hole and lettering (unshifted pixels)
+	var keep_out: Array[Rect2i] = []
+	if holed:
+		var lx1 := (clear.x if clear.x >= 0 else left.y + 2) - 1
+		var rx0 := (clear.y if clear.y >= 0 else right.x - 2) + 1
+		if left.y - left.x >= 3:
+			keep_out.append(Rect2i(0, h / 2 - 5, lx1 + 1, 8))
+		if right.y - right.x >= 3:
+			keep_out.append(Rect2i(rx0, h / 2 - 3, w - rx0, 8))
+	if notch > 0:
+		# nor does a stroke end in a stub against a corner knob
+		var kk := 3 + ol
+		for c in [Vector2i(kk, kk), Vector2i(w - 1 - kk, kk), Vector2i(kk, h - 1 - kk), Vector2i(w - 1 - kk, h - 1 - kk)]:
+			keep_out.append(Rect2i(c.x - 3, c.y - 3, 7, 7))
+	# light strokes also stay out from under the label, where a lit pixel in the gap between
+	# two letters would read as a speck
+	var light_out: Array[Rect2i] = keep_out.duplicate()
+	if clear.x >= 0:
+		light_out.append(Rect2i(clear.x, 8, clear.y - clear.x + 1, h - 15))
 	# grain: long horizontal strokes on close rows, the light ones shorter. Rows are chosen
-	# unshifted so both states consume the same random numbers.
+	# unshifted so both states consume the same random numbers. Icon squares stay plain.
 	var rng := RandomNumberGenerator.new()
 	rng.seed = hash("%s%d%d%s" % [style, w, h, variant])
 	var gap := Vector2i(3, 12)
 	if sparse:
 		gap = Vector2i(5, 16)
 	var gy := 4 + ol
-	while gy < h - 4 - ol:
+	while not square and gy < h - 4 - ol:
 		var gx := 5 + rng.randi_range(0, 10)
 		while gx < w - 6:
 			var run := rng.randi_range(6, 30)
 			var c := grain
 			var dark := rng.randf()
 			if style == "red" and gy > h / 2 and dark < float(gy) / h:
-				c = P.WINE  # the paint darkens toward the bottom
-			var light := rng.randf() < (0.15 if style == "red" else 0.3)
-			if light and not square and (style != "red" or (gy >= 7 and gy < h / 2 - 2)):
-				c = grain2
-				run = mini(run, rng.randi_range(3, 8) if style == "red" else rng.randi_range(6, 14))
-			_hline_on(img, depth, gx, mini(gx + run - 1, w - 6), gy + shift, P.c(c), 4)
+				c = low  # the paint darkens toward the bottom
+			elif dark < warm_share:
+				c = grain_warm
+			var tone := rng.randf()
+			var light := tone < light_p and (style != "red" or (gy >= 7 and gy < h * 2 / 3))
+			if light:
+				var hot := tone < light_p * hot_share
+				c = grain3 if hot else grain2
+				run = mini(run, rng.randi_range(4, 12) if style == "red" else rng.randi_range(6, 14))
+				if hot:
+					run = mini(run, rng.randi_range(4, 9))
+			if c != c_none:
+				_grain_on(img, depth, gx, mini(gx + run - 1, w - 6), gy, shift, P.c(c),
+						light_out if light else keep_out)
 			gx += run + rng.randi_range(gap.x, gap.y)
-		gy += rng.randi_range(7, 11) if sparse else rng.randi_range(2, 4)
+		gy += rng.randi_range(7, 11) if sparse else rng.randi_range(2, 3)
 	# damage has its own generator, so the pressed state keeps every crack in place
 	var dmg := RandomNumberGenerator.new()
 	dmg.seed = hash("%s%d%d%s holes" % [style, w, h, variant])
 	if button and not square:
-		_hline_on(img, depth, 4, w - 5, h / 2 + shift, P.c(seam), 4)
-	if style == "red":  # dark flecks in the paint
+		# the seam runs out from under each crosshair through the hole and stops there, so
+		# it never joins the lettering
+		if clear.x >= 0 and w >= 60:
+			_hline_on(img, depth, 4, left.y, h / 2 + shift, P.c(seam), 4)
+			_hline_on(img, depth, right.x, w - 5, h / 2 + shift, P.c(seam), 4)
+		else:
+			_hline_on(img, depth, 4, w - 5, h / 2 + shift, P.c(seam), 4)
+	if style == "red":  # dark flecks in the paint, two or three pixels long
 		for i in dmg.randi_range(6, 10):
 			var fx := dmg.randi_range(6, w - 8)
-			var fy := dmg.randi_range(6, h - 7) + shift
-			_hline_on(img, depth, fx, fx + dmg.randi_range(0, 1), fy, P.c(P.WINE), 5)
-	if button and not square and w >= 60:
-		var m := roundi(w * 0.15)
-		var left := Vector2i(13, clear.x - 2 if clear.x >= 0 else 2 * m - 13)
-		var right := Vector2i(clear.y + 2 if clear.y >= 0 else w - 1 - (2 * m - 13), w - 14)
+			var fy := dmg.randi_range(6, h - 7)
+			var fl := fx + 1 + dmg.randi_range(0, 1)
+			var free := true
+			for r in keep_out:
+				free = free and not r.intersects(Rect2i(fx, fy, fl - fx + 1, 1))
+			if free:
+				_hline_on(img, depth, fx, fl, fy + shift, P.c(low), 5)
+	if holed:
 		_bullet_hole(img, depth, left, h / 2 - 1 + shift, dmg, style)
 		_bullet_hole(img, depth, right, h / 2 + 1 + shift, dmg, style)
 	if button and not square and w >= 40 and h >= 18:
@@ -844,6 +914,17 @@ static func panel_image(w: int, h: int, style: String, down := false, variant :=
 	return img
 
 
+## One shade darker on the red ramp, for a pressed red button's paint.
+const DARKER := {
+	PixelArt.RED: PixelArt.BLOOD, PixelArt.BLOOD: PixelArt.MAROON, PixelArt.MAROON: PixelArt.WINE,
+	PixelArt.WINE: PixelArt.WINE_DARK,
+}
+
+
+static func _darker(col: int) -> int:
+	return DARKER.get(col, col)
+
+
 ## A horizontal run painted only where the panel is at least `min_depth` deep.
 static func _hline_on(img: Image, depth: PackedInt32Array, x0: int, x1: int, y: int, col: Color,
 		min_depth: int) -> void:
@@ -853,6 +934,28 @@ static func _hline_on(img: Image, depth: PackedInt32Array, x0: int, x1: int, y: 
 	for x in range(maxi(x0, 0), mini(x1, w - 1) + 1):
 		if depth[y * w + x] >= min_depth:
 			img.set_pixel(x, y, col)
+
+
+## A grain stroke on unshifted row y, drawn `shift` rows lower, with the columns of any
+## keep-out rect on that row left out. A stub under three pixels left by the cut is dropped.
+static func _grain_on(img: Image, depth: PackedInt32Array, x0: int, x1: int, y: int, shift: int,
+		col: Color, keep_out: Array[Rect2i]) -> void:
+	var runs := [Vector2i(x0, x1)]
+	var cut := false
+	for r in keep_out:
+		if y < r.position.y or y >= r.end.y or x1 < r.position.x or x0 >= r.end.x:
+			continue
+		cut = true
+		var next := []
+		for run in runs:
+			if run.x < r.position.x:
+				next.append(Vector2i(run.x, mini(run.y, r.position.x - 1)))
+			if run.y >= r.end.x:
+				next.append(Vector2i(maxi(run.x, r.end.x), run.y))
+		runs = next
+	for run in runs:
+		if not cut or run.y - run.x >= 2:
+			_hline_on(img, depth, run.x, run.y, y + shift, col, 4)
 
 
 ## A hollow diamond knob in the inner corner of a notch, with an ink heart.
@@ -881,15 +984,15 @@ static func _crosshair(img: Image, cx: int, cy: int, col: Array) -> void:
 ## A bullet hole centred in the free columns span.x..span.y: a round ink hole (five pixels
 ## across when there is room, else four) with a scorched rim on its upper left and a lit lip on
 ## its lower right, and two or three short cracks, each with an ink root and one lit pixel
-## beside it. Cracks stay inside the span and the fill and are left out when the span is
-## narrow; with no room for the hole there is no hole.
+## beside it. Cracks stay inside the span and the fill. A span of four to six columns has no
+## room for a hole and gets only a crack: a two-pixel ink pit with a lit pixel under it and
+## the same short cracks round it. A narrower span gets nothing.
 static func _bullet_hole(img: Image, depth: PackedInt32Array, span: Vector2i, cy: int,
 		rng: RandomNumberGenerator, style: String) -> void:
 	var P := PixelArt
 	var wood := style == "wood"
 	var scorch := P.c(P.BROWN_BLACK if wood else P.WINE_DARK)
 	var lip := P.c(P.ORANGE)
-	var crack := P.c(P.BROWN_BLACK if wood else P.WINE_DARK)
 	var crack_lit := P.c(P.OCHRE if wood else P.ORANGE)
 	var ink := P.c(P.INK)
 	var room := span.y - span.x + 1
@@ -902,8 +1005,18 @@ static func _bullet_hole(img: Image, depth: PackedInt32Array, span: Vector2i, cy
 		jit.append([rng.randf_range(-0.35, 0.35), rng.randi_range(3, 5), rng.randf_range(-0.7, 0.7)])
 	if room < 4:
 		return
-	var w := img.get_width()
 	var h := img.get_height()
+	var clip := Rect2i(span.x, 5, room, h - 10)
+	var core := {}
+	if room < 7:
+		var pit := Vector2i((span.x + span.y) / 2, cy)
+		core[pit] = true
+		core[pit + Vector2i(1, 0)] = true
+		_cracks(img, depth, Vector2(pit.x + 0.5, pit.y), 1.1, core, clip, 3, a0, jit, style)
+		for q in core:
+			P.px(img, q.x, q.y, ink)
+		P.px(img, pit.x + 1, pit.y + 1, crack_lit)
+		return
 	var s := 4
 	if room >= 13 and h >= 34:
 		s = 6
@@ -911,8 +1024,6 @@ static func _bullet_hole(img: Image, depth: PackedInt32Array, span: Vector2i, cy
 		s = 5
 	var cx := (span.x + span.y + 1) / 2
 	var o := Vector2i(cx - s / 2, cy - s / 2)
-	var clip := Rect2i(span.x, 5, room, h - 10)
-	var core := {}
 	for j in s:
 		for i in s:
 			if (i == 0 or i == s - 1) and (j == 0 or j == s - 1):
@@ -923,35 +1034,9 @@ static func _bullet_hole(img: Image, depth: PackedInt32Array, span: Vector2i, cy
 	if s == 6:  # a big hole gets ragged on both sides
 		core[o + nubs[(nub + 2) % 4]] = true
 	core[o + nubs[nub]] = true
-	if room >= 7:
-		var centre := Vector2(o.x + (s - 1) / 2.0, o.y + (s - 1) / 2.0)
-		for i in n:
-			var a: float = a0 + TAU * i / n + jit[i][0]
-			var dir := Vector2(cos(a), sin(a))
-			var bend: float = a + jit[i][2]
-			var pts: Array[Vector2i] = []
-			var p := centre + dir * (s / 2.0 + 0.6)
-			for k in jit[i][1]:
-				var q := Vector2i(roundi(p.x), roundi(p.y))
-				if pts.is_empty() or pts[-1] != q:
-					pts.append(q)
-				p += (dir if k < 2 else Vector2(cos(bend), sin(bend)))
-			for k in pts.size():
-				var q := pts[k]
-				if core.has(q) or not clip.has_point(q) or depth[q.y * w + q.x] < 5:
-					break
-				P.px(img, q.x, q.y, ink if k == 0 else crack)
-				if k == 0 or (wood and k < pts.size() - 1):
-					# the lit edge is on the side facing down and right; cracks in the wood
-					# catch the light along their length, cracks in the paint at the root
-					var side := Vector2i(roundi(-dir.y), roundi(dir.x))
-					if side.x + side.y < 0:
-						side = -side
-					if side == Vector2i.ZERO:
-						side = Vector2i(0, 1)
-					var t := q + side
-					if not core.has(t) and not pts.has(t) and clip.has_point(t) and depth[t.y * w + t.x] >= 5:
-						P.px(img, t.x, t.y, crack_lit)
+	var centre := Vector2(o.x + (s - 1) / 2.0, o.y + (s - 1) / 2.0)
+	_cracks(img, depth, centre, s / 2.0 + 0.6, core, clip, n, a0, jit, style)
+	var w := img.get_width()
 	for q in [o, o + Vector2i(1, -1), o + Vector2i(2, -1), o + Vector2i(-1, 1), o + Vector2i(-1, 2)]:
 		if not core.has(q) and clip.has_point(q) and depth[q.y * w + q.x] >= 4:
 			P.px(img, q.x, q.y, scorch)
@@ -961,3 +1046,41 @@ static func _bullet_hole(img: Image, depth: PackedInt32Array, span: Vector2i, cy
 	for q in [o + Vector2i(e, e), o + Vector2i(e + 1, e - 1), o + Vector2i(e - 1, e + 1)]:
 		if not core.has(q) and clip.has_point(q) and depth[q.y * w + q.x] >= 4:
 			P.px(img, q.x, q.y, lip)
+
+
+## Up to n short cracks running out from `centre`, starting `r0` pixels out: an ink root, then
+## crack colour, with a lit pixel on the side facing down and right (along the whole crack in
+## wood, at the root in paint). A crack stops at the core, the clip rect or the frame.
+static func _cracks(img: Image, depth: PackedInt32Array, centre: Vector2, r0: float,
+		core: Dictionary, clip: Rect2i, n: int, a0: float, jit: Array, style: String) -> void:
+	var P := PixelArt
+	var wood := style == "wood"
+	var crack := P.c(P.BROWN_BLACK if wood else P.WINE_DARK)
+	var crack_lit := P.c(P.OCHRE if wood else P.ORANGE)
+	var ink := P.c(P.INK)
+	var w := img.get_width()
+	for i in n:
+		var a: float = a0 + TAU * i / n + jit[i][0]
+		var dir := Vector2(cos(a), sin(a))
+		var bend: float = a + jit[i][2]
+		var pts: Array[Vector2i] = []
+		var p := centre + dir * r0
+		for k in jit[i][1]:
+			var q := Vector2i(roundi(p.x), roundi(p.y))
+			if pts.is_empty() or pts[-1] != q:
+				pts.append(q)
+			p += (dir if k < 2 else Vector2(cos(bend), sin(bend)))
+		for k in pts.size():
+			var q := pts[k]
+			if core.has(q) or not clip.has_point(q) or depth[q.y * w + q.x] < 5:
+				break
+			P.px(img, q.x, q.y, ink if k == 0 else crack)
+			if k == 0 or (wood and k < pts.size() - 1):
+				var side := Vector2i(roundi(-dir.y), roundi(dir.x))
+				if side.x + side.y < 0:
+					side = -side
+				if side == Vector2i.ZERO:
+					side = Vector2i(0, 1)
+				var t := q + side
+				if not core.has(t) and not pts.has(t) and clip.has_point(t) and depth[t.y * w + t.x] >= 5:
+					P.px(img, t.x, t.y, crack_lit)

@@ -7,34 +7,55 @@ The sun sits behind the town, so every face turned to the camera is dark umber; 
 lamps and lit windows. The three near buildings (saloon, L2, N1) are drawn in screen space along
 sloped lines that cheat the perspective the way the concept does; the far rows follow the street
 camera loosely. All coordinates are safe-area pixels; sloped lines run on into the overscan."""
+import contextlib
 import math
 
 import palette as P
 from scene.common import *  # noqa: F401,F403
 
 
-FACADE_X = 7.5                    # the far rows stand this many metres either side of the centre
 X0, X1 = -OX, SAFE_W + OX - 1     # the whole layer, overscan included
+# The cluster at the end of the street (church, far rows, water tower, far poles) is drawn in
+# its own coordinates and set this many whole pixels lower, so the purple valley shows above it.
+FAR_DY = 7
 
 _RGBA = {n: P.rgb(n, 0.0) + (255,) for n in P.NAMES}
 _NAME = {v[:3]: n for n, v in _RGBA.items()}
-DARKS = {"INK", "CHARCOAL", "SHADOW", "BROWN_BLACK", "BROWN_DARK", "BROWN", "BROWN_MID"}
+_DY = [0]                          # vertical offset of whatever is being drawn (see far())
+
+
+@contextlib.contextmanager
+def far():
+    """Everything drawn inside `with far():` lands FAR_DY px lower (whole pixels only)."""
+    _DY[0] = FAR_DY
+    try:
+        yield
+    finally:
+        _DY[0] = 0
 
 
 # raster helpers ------------------------------------------------------------------------------
 def put(L, x, y, c):
-    X, Y = int(x) + OX, int(y) + OY
+    X, Y = int(x) + OX, int(y) + OY + _DY[0]
     if c and 0 <= X < W and 0 <= Y < H:
         L.im.putpixel((X, Y), _RGBA[c])
 
 
 def at(L, x, y):
-    X, Y = int(x) + OX, int(y) + OY
+    X, Y = int(x) + OX, int(y) + OY + _DY[0]
     if 0 <= X < W and 0 <= Y < H:
         p = L.im.getpixel((X, Y))
         if p[3]:
             return _NAME.get(p[:3])
     return None
+
+
+def poly(L, pts, c):
+    L.poly([(x, y + _DY[0]) for x, y in pts], c)
+
+
+def line(L, pts, c):
+    L.line([(x, y + _DY[0]) for x, y in pts], c)
 
 
 def fy(line, x):
@@ -75,24 +96,8 @@ WINDOWS = []                       # lit window rects (with their warm band): la
 
 
 def in_window(x, y):
+    y += _DY[0]
     return any(a <= x <= c and b <= y <= d for a, b, c, d in WINDOWS)
-
-
-def spill(L, cx, cy, r0, r1, c, density, onto=DARKS, clip=None):
-    """Dithered light from a lamp, painted only onto dark opaque surfaces and never onto a lit
-    window or its frame, which carry their own solid warm band."""
-    for y in range(int(cy - r1) - 1, int(cy + r1) + 2):
-        for x in range(int(cx - r1) - 1, int(cx + r1) + 2):
-            if clip and not (clip[0] <= x <= clip[2] and clip[1] <= y <= clip[3]):
-                continue
-            if in_window(x, y):
-                continue
-            d = math.hypot(x - cx, (y - cy) * 1.15)
-            if r0 <= d <= r1:
-                lvl = density * (1.0 - (d - r0) / max(1.0, r1 - r0))
-                # 2 x 1 clusters, like light catching the grain, not single dots
-                if dith((x + OX) // 2, y + OY, lvl) and at(L, x, y) in onto:
-                    put(L, x, y, c)
 
 
 # one step warmer along the wood ramp, for surfaces a lamp lights up
@@ -101,18 +106,17 @@ WARM = {"INK": "BROWN_BLACK", "CHARCOAL": "BROWN_BLACK", "BROWN_BLACK": "BROWN_D
 
 
 def warm(L, cx, cy, r_in, r_out, clip=None, sy=1.15):
-    """Stepped lamplight: two ramp steps warmer inside r_in, one step out to r_out, the band
-    edges broken up with the Bayer matrix over 3 px."""
+    """Stepped lamplight: two ramp steps warmer inside r_in, one step out to r_out. The band
+    edges are hard and wander by up to a pixel from row to row, so the light reads as warm
+    wood in solid runs, never as a dotted halo."""
     for y in range(int(cy - r_out) - 2, int(cy + r_out) + 3):
+        j_in = 2.0 * hsh(y, int(cx), int(cy), 71) - 1.0
+        j_out = 2.0 * hsh(y, int(cx), int(cy), 72) - 1.0
         for x in range(int(cx - r_out) - 2, int(cx + r_out) + 3):
             if clip and not (clip[0] <= x <= clip[2] and clip[1] <= y <= clip[3]):
                 continue
             d = math.hypot(x - cx, (y - cy) * sy)
-            n = 0
-            if dith(x + OX, y + OY, (r_out + 1.5 - d) / 3.0):
-                n = 1
-                if dith(x + OX, y + OY, (r_in + 1.5 - d) / 3.0):
-                    n = 2
+            n = 2 if d <= r_in + j_in else (1 if d <= r_out + j_out else 0)
             c = at(L, x, y)
             if not n or c not in WARM or in_window(x, y):
                 continue
@@ -122,9 +126,8 @@ def warm(L, cx, cy, r_in, r_out, clip=None, sy=1.15):
 
 
 def lamp_glow(L, cx, cy, k=1.0, clip=None):
+    """Lamplight on the wood round a lantern: solid warm steps only, no dotted spill."""
     warm(L, cx, cy, 13 * k, 24 * k, clip=clip)
-    spill(L, cx, cy, 5 * k, 12 * k, "AMBER", 0.5, clip=clip)
-    spill(L, cx, cy, 12 * k, 20 * k, "RUST", 0.25, clip=clip)
 
 
 def siding(y, top, bot, h0, step=3):
@@ -157,28 +160,32 @@ def wall_spill(L, x0, y0, x1, y1):
 
 
 def pane_colour(x, y, px0, py0, px1, py1, first_row):
-    """A lit pane, warm and saturated like the concept: a LAMP_HOT spot top left (upper panes),
-    LAMP across the top, AMBER below it in hard steps, ORANGE along the bottom."""
+    """A lit pane in deep warm glass like the concept: AMBER, ORANGE along the bottom (two rows
+    on tall panes), and in the top panes only a small LAMP cluster in the upper corner where the
+    lamp inside shows through. LAMP_HOT is kept for the lantern flames."""
     h = py1 - py0 + 1
-    i = y - py0
-    if first_row and i <= 1 and i + (x - px0) <= (2 if h > 6 else 1):
-        return "LAMP_HOT"
-    if h <= 2:
-        return "LAMP" if i == 0 else "AMBER"
-    if y == py1 or (h > 7 and y == py1 - 1):
+    i, j = y - py0, x - px0
+    if first_row:
+        if h > 2 and px1 > px0:
+            hot = i + j <= 1                            # 3 px: the corner and its two neighbours
+        elif px1 > px0:
+            hot = i == 0 and j <= 1
+        else:
+            hot = j == 0 and i <= 1
+        if hot:
+            return "LAMP"
+    if h > 2 and (y == py1 or (h > 7 and y == py1 - 1)):
         return "ORANGE"
-    top = max(1, (h * 2) // 5)
-    if i < top:
-        return "LAMP"
     return "AMBER"
 
 
 def lit_window(L, x0, y0, x1, y1, mull_x=(), mull_y=(), spill_c="RUST", tops=None):
-    """1 px BROWN frame, LAMP panes with a hot spot top left and AMBER lower down, BROWN_BLACK
-    mullions and a dithered spill on the wall around it. `tops` (optional) maps column -> top
-    row for windows sheared along a sloped facade."""
+    """1 px BROWN frame, deep AMBER and ORANGE panes (see pane_colour), BROWN_BLACK mullions
+    and a solid warm band on the wall around it. `tops` (optional) maps column -> top row for
+    windows sheared along a sloped facade."""
     sh = (tops[x0] - y0) if tops else 0
-    WINDOWS.append((x0 - 1, y0 + sh - 1, x1 + 1, y1 + sh + 1 + (x1 - x0 if tops else 0)))
+    dy = _DY[0]
+    WINDOWS.append((x0 - 1, y0 + sh - 1 + dy, x1 + 1, y1 + sh + 1 + dy + (x1 - x0 if tops else 0)))
     if spill_c:
         wall_spill(L, x0, y0 + sh, x1, y1 + sh)
     xs = [x0] + sorted(mull_x) + [x1]
@@ -204,8 +211,6 @@ def small_window(L, x, y, w=2, h=3, lit=True):
         for xx in range(x, x + w):
             if lit:
                 c = "AMBER" if yy == y + h - 1 and h > 2 else "LAMP"
-                if h >= 5 and yy == y and xx == x:
-                    c = "LAMP_HOT"
                 put(L, xx, yy, c)
             else:
                 put(L, xx, yy, "CHARCOAL" if yy > y else "SHADOW")
@@ -296,14 +301,16 @@ def church(L):
     """A small white-steepled church at the end of the street, backlit: dark planked body,
     rim-lit gable, a tower rising off the ridge with a lit belfry, spire and cross, and an open
     door pouring lamplight into the street."""
-    # body with vertical planks, the bottom rows in shadow
+    # body with vertical planks, the bottom rows in shadow; it stands on the street at y 298
+    # (305 on screen, FAR_DY lower) so the lit door ends there and the street's lit path runs
+    # straight on from its step
     for x in range(127, 154):
-        for y in range(285, 301):
+        for y in range(285, 299):
             c = "BROWN" if (x - 127) % 4 == 2 else "BROWN_DARK"
-            if y >= 298:
+            if y >= 296:
                 c = "SHADOW"
             put(L, x, y, c)
-    vband(L, 153, 285, 297, "OCHRE")
+    vband(L, 153, 285, 295, "OCHRE")
     # tower first: the gable roof covers its foot
     box(L, 137, 266, 143, 284, "BROWN_DARK")
     vband(L, 138, 273, 284, "BROWN")
@@ -332,15 +339,15 @@ def church(L):
     put(L, 141, 254, "RIM")
     put(L, 143, 252, "RIM")
     # the front gable, dark with shingle rows, rim-lit on both slopes (hotter on the sun side)
-    L.poly([(124, 287), (140, 277), (156, 287)], "BROWN_BLACK")
+    poly(L, [(125, 287), (140, 277), (155, 287)], "BROWN_BLACK")
     for y in range(280, 288, 3):
-        for x in range(124, 157):
+        for x in range(125, 156):
             if at(L, x, y) == "BROWN_BLACK" and at(L, x, y - 1) == "BROWN_BLACK":
                 put(L, x, y, "BROWN_DARK")
-    L.line([(124, 287), (140, 277)], "RIM")
-    L.line([(140, 277), (156, 287)], "RIM_HOT")
-    L.line([(125, 287), (140, 278)], "OCHRE")
-    L.line([(140, 278), (155, 287)], "OCHRE")
+    line(L, [(125, 287), (140, 277)], "RIM")
+    line(L, [(140, 277), (155, 287)], "RIM_HOT")
+    line(L, [(126, 287), (140, 278)], "OCHRE")
+    line(L, [(140, 278), (154, 287)], "OCHRE")
     put(L, 140, 277, "RIM_HOT")
     hband(L, 126, 154, 288, "BROWN_BLACK")
     # windows
@@ -350,22 +357,22 @@ def church(L):
         put(L, wx + 1, 290, "LAMP")
         put(L, wx, 291, "LAMP")
     # the open door, light pouring out
-    for y in range(290, 301):
+    for y in range(290, 299):
         for x in range(136, 145):
             dx = abs(x - 140)
             edge = {290: 2, 291: 3}.get(y, 4)
             if dx > edge:
                 continue
             c = "BROWN_BLACK" if dx == edge or y == 290 else "LAMP"
-            if c == "LAMP" and 139 <= x <= 141 and 293 <= y <= 298:
+            if c == "LAMP" and 139 <= x <= 141 and 293 <= y <= 296:
                 c = "LAMP_HOT"
             put(L, x, y, c)
-    vband(L, 140, 292, 300, "BROWN")
-    warm(L, 140, 295, 4, 8, clip=(127, 285, 153, 300))
-    # a step in front of the door, its tread catching the light
-    hband(L, 134, 146, 301, "LEATHER")
-    hband(L, 136, 144, 301, "AMBER")
-    hband(L, 133, 147, 302, "BROWN_DARK")
+    vband(L, 140, 292, 298, "BROWN")
+    warm(L, 140, 294, 4, 8, clip=(127, 285, 153, 298))
+    # a flat step in front of the door, its tread catching the light; no riser under it, so the
+    # lit path on the street starts right below the tread
+    hband(L, 134, 146, 299, "LEATHER")
+    hband(L, 136, 144, 299, "AMBER")
 
 
 def windmill(L):
@@ -432,24 +439,25 @@ def windmill(L):
     box(L, cx - 1, cy - 1, cx + 1, cy + 1, "INK")
 
 
-def water_tower(L):
-    """A small water tank on stilts behind the far left row, kept low so it stays under the
-    church tower and away from the vanishing point."""
-    for x0, x1 in ((107, 105), (110, 110), (114, 114), (117, 119)):   # legs
-        L.line([(x0, 271), (x1, 292)], "CHARCOAL")
-    L.line([(107, 274), (117, 286)], "CHARCOAL")
-    L.line([(117, 274), (107, 286)], "CHARCOAL")
-    hband(L, 106, 118, 274, "CHARCOAL")
-    for x in range(106, 119):
+def water_tower(L, x=99):
+    """A small water tank on stilts behind the far left row (x is its left edge), kept low so it
+    stays under the church tower, and narrow so it stands clear of L2's corner on the left and
+    of the telegraph pole's crossbar on the right (2..3 px of sky each side)."""
+    for x0, x1 in ((2, 0), (5, 5), (8, 8), (10, 12)):                 # legs
+        line(L, [(x + x0, 271), (x + x1, 292)], "CHARCOAL")
+    line(L, [(x + 2, 274), (x + 10, 286)], "CHARCOAL")
+    line(L, [(x + 10, 274), (x + 2, 286)], "CHARCOAL")
+    hband(L, x + 1, x + 11, 274, "CHARCOAL")
+    for xx in range(x + 1, x + 12):
         for y in range(261, 271):
-            put(L, x, y, "BROWN" if (x - 106) % 2 == 1 else "BROWN_DARK")
-    vband(L, 118, 261, 270, "RIM")
-    vband(L, 117, 262, 270, "OCHRE")
+            put(L, xx, y, "BROWN" if (xx - x) % 2 == 0 else "BROWN_DARK")
+    vband(L, x + 11, 261, 270, "RIM")
+    vband(L, x + 10, 262, 270, "OCHRE")
     for y in (263, 268):
-        hband(L, 106, 116, y, "CHARCOAL")
-    hband(L, 106, 118, 270, "BROWN_BLACK")
-    L.poly([(105, 261), (112, 257), (119, 261)], "CHARCOAL")
-    L.line([(112, 257), (119, 261)], "RIM")
+        hband(L, x + 1, x + 9, y, "CHARCOAL")
+    hband(L, x + 1, x + 11, 270, "BROWN_BLACK")
+    poly(L, [(x, 261), (x + 6, 257), (x + 12, 261)], "CHARCOAL")
+    line(L, [(x + 6, 257), (x + 12, 261)], "RIM")
 
 
 def telegraph_pole(L, x, y0, y1, bar):
@@ -525,13 +533,13 @@ def far_left_row(L):
     vband(L, 116, 286, 302, "INK")
     # a gable window, windows under the porch, and open doorways at porch level
     for x, y, w, h, lit in ((100, 269, 2, 2, True), (98, 283, 2, 3, True), (103, 283, 2, 3, False),
-                            (108, 287, 2, 3, True), (113, 287, 2, 3, True), (118, 291, 2, 3, True)):
+                            (108, 287, 2, 3, True), (113, 287, 2, 3, True), (122, 291, 2, 3, True)):
         small_window(L, x, y, w, h, lit)
-    for x, h, w in ((102, 9, 3), (112, 8, 3), (120, 6, 2)):
+    # (L3's own door and the low windows at x 97 and 108 are left out: the spare wheel leans
+    # in front of them, and their lamplight would only show as scraps round its rim)
+    for x, h, w in ((112, 8, 3), (120, 6, 2)):
         b = base_l(x + 1)
         doorway(L, x, b - h, b - 1, w)
-    small_window(L, 97, 297, 2, 4, True)
-    small_window(L, 108, 296, 2, 3, True)
 
 
 def second_left(L):
@@ -545,7 +553,7 @@ def second_left(L):
             elif y == top + 1:
                 c = "OCHRE"
             elif y < roof:
-                k, seam = siding(y, fy(TOP2, x) + 2, fy(ROOF2, x), 40)
+                k, seam = siding(y, fy(TOP2, x) + 2, fy(ROOF2, x), 40, step=4)
                 c = "BROWN_BLACK" if seam else board(x, k)
                 if x == 96:
                     c = "RIM"
@@ -586,26 +594,31 @@ def second_left(L):
         put(L, x, floor + 2, "BROWN_BLACK")
     # the boardwalk deck in front of L2..L5
     for x in range(48, 125):
-        for y in range(base_l(x) + 1, walk_l(x) + 1):
-            put(L, x, y, "OCHRE" if y == walk_l(x) else ("BROWN" if (y + x // 4) % 3 == 0 else "BROWN_DARK"))
-        put(L, x, walk_l(x) + 1, "BROWN_BLACK")
-        put(L, x, walk_l(x) + 2, "BROWN_BLACK")
+        with (far() if x > 96 else contextlib.nullcontext()):
+            for y in range(base_l(x) + 1, walk_l(x) + 1):
+                put(L, x, y, "OCHRE" if y == walk_l(x) else ("BROWN" if (y + x // 4) % 3 == 0 else "BROWN_DARK"))
+            put(L, x, walk_l(x) + 1, "BROWN_BLACK")
+            put(L, x, walk_l(x) + 2, "BROWN_BLACK")
     # lower windows under the porch
     lit_window(L, 54, 258, 62, 284, mull_x=(58,), mull_y=(270,))
     lit_window(L, 76, 280, 82, 296, mull_x=(79,), mull_y=(288,))
-    lit_window(L, 88, 284, 93, 298, mull_y=(291,))
+    lit_window(L, 89, 284, 92, 298, mull_y=(291,))                # 2 px clear of post 95
     # porch roof: rim, ochre, dark edge
     band(L, ROOF2, 50, 97, ["RIM", "OCHRE", "BROWN_DARK", "BROWN_BLACK"])
-    for x in range(98, 125):                           # on over the far row, one roof each
-        if x in (106, 116):
-            continue
-        y = far_row_roof(x)
-        put(L, x, y, "RIM")
-        put(L, x, y + 1, "OCHRE" if x < 106 else "BROWN_DARK")
-        put(L, x, y + 2, "BROWN_BLACK")
-    for x in (60, 74, 88, 100, 110, 118):
-        w = 2 if x < 100 else 1
-        post(L, x, ry(ROOF2, x + w // 2) + 4, walk_l(x), w, 1, hot=False)
+    with far():
+        for x in range(98, 125):                       # the far row's own roofs, one each
+            if x in (106, 116):
+                continue
+            y = far_row_roof(x)
+            put(L, x, y, "RIM")
+            put(L, x, y + 1, "OCHRE" if x < 106 else "BROWN_DARK")
+            put(L, x, y + 2, "BROWN_BLACK")
+        # no posts of their own: at 100 and 110 they would stand on the spare wheel's crown or
+        # graze its rim, and the telegraph pole at 118 stands where the last one would be
+    # none at 74 (lantern LB hangs alone there) and none by the hat brim's tip: the second post
+    # stands at L2's corner, where the roof steps down to the far row, and the wheel leans on it
+    for x in (60, 95):
+        post(L, x, ry(ROOF2, x + 1) + 4, walk_l(x), 2, 1, hot=False)
     # lantern LB hanging from the porch roof
     lamp_glow(L, 76, 281, 0.7)
     vband(L, 76, ry(ROOF2, 76) + 4, 271, "CHARCOAL")
@@ -626,7 +639,7 @@ def saloon(L):
             elif y == top + 3:
                 c = "BROWN_BLACK"
             else:
-                k, seam = siding(y, fy(ROOF, x) + 4, fy(BEAM, x), 56)
+                k, seam = siding(y, fy(ROOF, x) + 4, fy(BEAM, x), 56, step=4)
                 c = "BROWN_BLACK" if seam else board(x, k)
             put(L, x, y, c)
     # corner post with its cap
@@ -677,7 +690,7 @@ def saloon(L):
     for x in range(X0, 51):
         bt = ry(BEAM, x) + 4
         pb = ry(PBEAM, x)
-        for y in range(bt, 341):
+        for y in range(bt, base_l(x) + 1):
             if y < pb:
                 k, seam = siding(y, fy(BEAM, x) + 4, fy(PBEAM, x), 74)
                 c = "BROWN_BLACK" if seam else board(x, k)
@@ -686,8 +699,17 @@ def saloon(L):
                 elif x == 49:
                     c = "OCHRE"
             else:
-                c = "BROWN_DARK" if (y - int(0.25 * x)) % 4 == 0 else "BROWN_BLACK"
+                # under the porch: shaded boards fanning from the porch beam down to the base
+                # line, so the seams run to the vanishing point; each seam is a faint lit lip
+                # broken at staggered butt joints
+                k, seam = siding(y, fy(PBEAM, x) + 4, 296 + 0.227 * (140 - x), 96, step=4)
+                c = "BROWN_DARK" if seam and (x + k * 13) % 23 > 1 else "BROWN_BLACK"
             put(L, x, y, c)
+    for x in range(X0, 48):                           # the boardwalk, carried on from L2's
+        for y in range(base_l(x) + 1, walk_l(x) + 1):
+            put(L, x, y, "OCHRE" if y == walk_l(x) else ("BROWN" if (y + x // 4) % 3 == 0 else "BROWN_DARK"))
+        put(L, x, walk_l(x) + 1, "BROWN_BLACK")
+        put(L, x, walk_l(x) + 2, "BROWN_BLACK")
     # balcony beam and rafter ends
     band(L, BEAM, X0, 60, ["RIM", "OCHRE", "BROWN", "BROWN_BLACK"])
     knob = ((".RRR", "DBBO", "DBBO", ".KKD"))           # log ends under the beam, lit top and right
@@ -703,10 +725,10 @@ def saloon(L):
     band(L, PBEAM, X0, 48, ["RIM", "OCHRE", "BROWN_DARK"])
     band(L, PBEAM, X0, 48, [None, None, None, "BROWN_BLACK"])
     for x, hot in ((28, False), (46, True)):
-        post(L, x, ry(PBEAM, x + 3) + 3, 340, 4, 1, hot)
+        post(L, x, ry(PBEAM, x + 3) + 3, walk_l(x + 2), 4, 1, hot)
     # lit windows and the lantern
-    lit_window(L, 12, 245, 25, 292, mull_x=(18,), mull_y=(257, 269, 281))
-    lit_window(L, 33, 252, 43, 278, mull_x=(38,), mull_y=(261, 270))
+    lit_window(L, 13, 246, 23, 290, mull_x=(18,), mull_y=(257, 268, 279))
+    lit_window(L, 34, 253, 42, 285, mull_x=(38,), mull_y=(263, 274))    # runs on behind the hat
     lamp_glow(L, 11.5, 250)
     vband(L, 12, ry(PBEAM, 12) + 3, 236, "CHARCOAL")
     put(L, 11, 235, "GREY_DARK")
@@ -793,8 +815,8 @@ def mid_right_row(L):
     """RA..RD: low buildings under the windmill with fronts of different heights and dark gaps
     between them, a porch roof running down towards the church, lit windows and a lantern."""
     fronts = (                 # name, x0, x1, top(x), wall, seam every n px (0: siding)
-        ("RD", 158, 166, lambda x: 267, "BROWN_DARK", 3),
-        ("RC", 168, 182, lambda x: ry(RC_TOP, x), "BROWN_BLACK", 4),
+        ("RD", 160, 168, lambda x: 267, "BROWN_DARK", 3),
+        ("RC", 170, 182, lambda x: ry(RC_TOP, x), "BROWN_BLACK", 4),
         ("RB", 184, 199, lambda x: 263, "BROWN_DARK", 3),
         ("RA", 201, 226, lambda x: ry(RA_TOP, x), "BROWN_DARK", 0),
     )
@@ -818,11 +840,11 @@ def mid_right_row(L):
                     c = wall
                 put(L, x, y, c)
         # the sun-facing (left) edge of each front, where it stands clear of its neighbour
-        ya, yb = top(x0), (top(x0 - 2) if x0 > 158 else 281)
+        ya, yb = top(x0), (top(x0 - 2) if name != "RD" else 281)
         vband(L, x0, ya, yb, "RIM")
         vband(L, x0 + 1, ya + 1, yb, "OCHRE")
     # square false fronts: a cornice one pixel proud on each side, shadow under it
-    for x0, x1, t in ((158, 166, 267), (184, 199, 263)):
+    for x0, x1, t in ((160, 168, 267), (184, 199, 263)):
         hband(L, x0 - 1, x1 + 1, t, "RIM_HOT" if x0 < 170 else "RIM")
         hband(L, x0 - 1, x1 + 1, t + 1, "BROWN")
         put(L, x0 - 1, t + 1, "OCHRE")
@@ -830,7 +852,7 @@ def mid_right_row(L):
         put(L, x0 - 1, t + 2, "INK")
         put(L, x1 + 1, t + 2, "INK")
     # dark gaps between the buildings
-    for x, ya in ((167, 272), (183, 268), (200, 258)):
+    for x, ya in ((169, 272), (183, 268), (200, 258)):
         vband(L, x, ya, base_r(x), "BROWN_BLACK")
     # RA balcony rail
     for x in range(201, 227):
@@ -842,16 +864,15 @@ def mid_right_row(L):
     # windows: upper storeys, then porch level
     lit_window(L, 205, 263, 209, 271)
     lit_window(L, 216, 260, 220, 269)
-    lit_window(L, 203, 290, 208, 300, mull_y=(295,))
-    lit_window(L, 214, 288, 220, 299, mull_x=(217,))
+    # (none at porch level left of this one: the horse's head stands against dark wall there)
+    lit_window(L, 214, 288, 220, 297, mull_x=(217,))
     lit_window(L, 187, 268, 190, 275)
     lit_window(L, 194, 268, 197, 275)
-    for x, y, w, h, lit in ((186, 294, 3, 5, True), (194, 293, 3, 5, True), (190, 295, 2, 4, False),
-                            (171, 277, 2, 3, True), (176, 277, 2, 3, True), (179, 283, 2, 3, False),
-                            (171, 284, 2, 3, True),
-                            (170, 297, 2, 3, True), (175, 296, 3, 5, True), (180, 295, 2, 4, True),
-                            (160, 272, 2, 3, True), (164, 272, 2, 3, False), (160, 280, 2, 3, True),
-                            (164, 280, 2, 3, True), (160, 298, 2, 2, True), (164, 298, 2, 2, True)):
+    for x, y, w, h, lit in ((172, 277, 2, 3, True), (176, 277, 2, 3, True), (179, 283, 2, 3, False),
+                            (172, 284, 2, 3, True),
+                            (172, 297, 2, 3, True), (176, 296, 3, 5, True), (180, 295, 2, 4, True),
+                            (162, 272, 2, 3, True), (166, 272, 2, 3, False), (162, 280, 2, 3, True),
+                            (166, 280, 2, 3, True), (162, 298, 2, 2, True), (166, 298, 2, 2, True)):
         small_window(L, x, y, w, h, lit)
     # boardwalk deck
     for x in range(158, 227):
@@ -860,13 +881,15 @@ def mid_right_row(L):
         put(L, x, walk_r(x) + 1, "BROWN_BLACK")
         put(L, x, walk_r(x) + 2, "BROWN_BLACK")
     band(L, PROOF_R, 158, 226, ["RIM", "OCHRE", "BROWN_DARK", "BROWN_BLACK"])
-    for x in (214, 203, 192, 182, 174, 167, 161):
+    for x in (214, 182, 174, 167, 161):               # none by the horse's head (192, 203)
         w = 2 if x >= 190 else 1
         post(L, x, ry(PROOF_R, x) + 4, walk_r(x), w, -1)
-    # a small lantern hanging from the porch roof
-    lamp_glow(L, 197, 296, 0.45, clip=(158, 283, 226, 320))
-    vband(L, 197, ry(PROOF_R, 197) + 4, 292, "CHARCOAL")
-    hanging_lantern(L, 195, 293, 199, 301, 295, 299, core=(197, 197, 296, 298))
+    # a small lantern hanging from the porch roof on a short rod, clear of the horse's head
+    # (in far() coordinates the roof band ends at y 292 here, the rod runs 293..294 and the
+    # lantern's ring sits at 295; on screen that is 7 px lower, the lantern spanning y 302..312)
+    lamp_glow(L, 187, 299, 0.45, clip=(158, 283, 226, 320))
+    vband(L, 187, ry(PROOF_R, 187) + 4, 294, "CHARCOAL")
+    hanging_lantern(L, 185, 296, 189, 304, 298, 302, core=(187, 187, 299, 301))
 
 
 def near_right(L):
@@ -964,54 +987,66 @@ def near_right(L):
 
 
 def wagon_wheel(L, cx, cy, r):
-    """Open wheel: LEATHER spokes, a BROWN_DARK rim lit on its upper right, an INK hub."""
-    for k in range(10):
-        a = k * math.pi / 5 + 0.15
-        for t in range(2, r):
+    """A spare wheel leaning on the boardwalk front. Its own shadow on the boards behind it
+    fills the wheel with plain BROWN_BLACK, so nothing lit shows between the spokes; ten
+    LEATHER spokes catch the lamplight, the felloe is BROWN inside a lit outer edge (RIM on
+    the upper right towards the sun, OCHRE round the top and sides, BROWN_DARK underneath),
+    and the hub is a small lit boss round an INK axle."""
+    for y in range(cy - r - 1, cy + r + 2):
+        for x in range(cx - r - 1, cx + r + 2):
+            if math.hypot(x - cx, y - cy) < r - 1.5:
+                put(L, x, y, "BROWN_BLACK")
+    for k in range(10):                                # one spoke straight up, none level
+        a = k * math.pi / 5 + math.pi / 10
+        for t in range(3, r - 1):
             put(L, int(round(cx + t * math.cos(a))), int(round(cy + t * math.sin(a))), "LEATHER")
     for y in range(cy - r - 1, cy + r + 2):
         for x in range(cx - r - 1, cx + r + 2):
             d = math.hypot(x - cx, y - cy)
             if r - 1.5 <= d < r + 0.5:
                 a = math.degrees(math.atan2(y - cy, x - cx)) % 360
-                outer = d >= r - 0.5
-                if outer and 250 <= a <= 350:
+                if d < r - 0.5:
+                    c = "BROWN"
+                elif 250 <= a <= 340:
                     c = "RIM"
-                elif outer:
-                    c = "BROWN_DARK"
+                elif a >= 160 or a <= 20:
+                    c = "OCHRE"
                 else:
-                    c = "OCHRE" if 250 <= a <= 350 else "BROWN"
+                    c = "BROWN_DARK"
                 put(L, x, y, c)
-    box(L, cx - 1, cy - 1, cx + 1, cy + 1, "INK")
-    put(L, cx + 1, cy - 1, "BROWN")
+    for dy in (-2, -1, 0, 1, 2):                       # hub: a 5 px boss, lit top right
+        for dx in (-2, -1, 0, 1, 2):
+            if abs(dx) + abs(dy) > 3:
+                continue
+            c = "BROWN_MID"
+            if abs(dx) == 2 or abs(dy) == 2 or abs(dx) + abs(dy) == 3:
+                c = "OCHRE" if dx - dy > 0 else "BROWN_DARK"
+            put(L, cx + dx, cy + dy, c)
+    put(L, cx, cy, "INK")
 
 
 def wagon(L):
-    wagon_wheel(L, 110, 315, 6)
-    box(L, 88, 300, 114, 305, "BROWN_DARK")
-    hband(L, 88, 114, 300, "RIM")
-    hband(L, 88, 114, 301, "OCHRE")
-    hband(L, 88, 114, 305, "INK")
-    for x in range(92, 114, 5):
-        vband(L, x, 302, 304, "BROWN_BLACK")
-    vband(L, 114, 300, 305, "RIM")
-    wagon_wheel(L, 96, 313, 8)
+    """One big spare wheel leaning on the boardwalk, clear of the hat brim; PLAY covers its foot."""
+    wagon_wheel(L, 100, 313, 10)
 
 
 def draw_town_back(L, rng):
-    """Things that stand entirely above the street's horizon: the small water tower."""
-    water_tower(L)
+    """Things that stand above the street's horizon: the small water tower."""
+    with far():
+        water_tower(L)
 
 
 def draw_town_front(L, rng):
     """Everything that stands on the street, back to front."""
     del WINDOWS[:]
-    church(L)
-    far_left_row(L)
+    with far():
+        church(L)
+        far_left_row(L)
     windmill(L)
-    mid_right_row(L)
-    telegraph_pole(L, 172, 266, 307, 269)
-    telegraph_pole(L, 124, 266, 304, 269)
+    with far():
+        mid_right_row(L)
+        telegraph_pole(L, 172, 266, 307, 269)
+        telegraph_pole(L, 118, 266, 305, 269)
     second_left(L)
     saloon(L)
     near_right(L)
