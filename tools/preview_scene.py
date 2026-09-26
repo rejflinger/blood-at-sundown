@@ -54,7 +54,7 @@ def main():
     view = comp.crop((OX, OY, OX + SAFE_W, OY + SAFE_H))
     if not a.no_ui:
         logo = Image.open(os.path.join(ROOT, "assets", "ui", "logo.png"))
-        view.alpha_composite(logo, ((SAFE_W - logo.width) // 2, 8))
+        view.alpha_composite(logo, ((SAFE_W - logo.width) // 2, 16))
         d = ImageDraw.Draw(view)
         for x, y, w, h, red in BUTTONS:
             d.rectangle((x, y, x + w - 1, y + h - 1), fill=c("INK"))
